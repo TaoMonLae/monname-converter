@@ -9,6 +9,9 @@
     "db:create": "wrangler d1 create mon-names-db",
     "db:migrate:local": "wrangler d1 migrations apply mon-names-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply mon-names-db --remote",
+    "db:seed:generate": "node scripts/csv-to-sql.js",
+    "db:seed:local": "node scripts/csv-to-sql.js && wrangler d1 migrations apply mon-names-db --local",
+    "db:seed:remote": "node scripts/csv-to-sql.js && wrangler d1 migrations apply mon-names-db --remote",
     "db:studio": "wrangler d1 execute mon-names-db --local --command='SELECT * FROM names LIMIT 10'",
     "db:reset:local": "wrangler d1 execute mon-names-db --local --file=./migrations/0001_init.sql"
   },
