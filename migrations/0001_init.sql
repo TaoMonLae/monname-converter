@@ -74,21 +74,5 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 );
 
 -- ── Seed data ────────────────────────────────────────────────
-INSERT OR IGNORE INTO names (id, mon, burmese, english, notes, gender, verified) VALUES
-  (1, 'နာင်ဗြာ',  'နောင်ကြာ',  'Naing Kyar',  'Future brightness; long-lasting glory',  'male',    1),
-  (2, 'မတ်ထဝ်',  'မသိုး',     'Ma Thoe',     'Shining one; luminous',                   'female',  1),
-  (3, 'မိဥ်ꩫ်',   'မင်းသည်',  'Min Thi',     'Royalty; nobility of character',           'male',    1),
-  (4, 'ဍုင်',     'မြို့',      'Dung',        'City; homeland; place of origin',         'neutral', 1),
-  (5, 'ဗြဲ',      'ကြယ်',      'Hkre',        'Star; celestial light',                   'neutral', 1),
-  (6, 'မိစိုတ်',  'မသက်',     'Mi Sot',      'Living; full of life and vitality',        'female',  1),
-  (7, 'နာင်ꩦ်',  'နောင်ထွတ်', 'Naing Htut',  'Future peak; rising high',                'male',    1),
-  (8, 'ဒြဲ',      'ကြဲ',       'Hkre',        'Brave; courageous spirit',                'male',    1);
-
-INSERT OR IGNORE INTO name_aliases (name_id, alias, language) VALUES
-  (1, 'Naing Kya',   'english'),
-  (1, 'Naing Kyar',  'english'),
-  (2, 'Ma Toe',      'english'),
-  (3, 'Min Thi',     'english'),
-  (3, 'Min Ti',      'english'),
-  (5, 'Kre',         'english'),
-  (7, 'Naing Htoot', 'english');
+-- Name data is managed via data/names.csv.
+-- Run `npm run db:seed:local` (or db:seed:remote) to load it.
