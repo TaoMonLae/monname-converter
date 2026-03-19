@@ -66,6 +66,15 @@ function formatName(row) {
   return { ...row, verified: !!row.verified, aliases: parseAliases(row.aliases) };
 }
 
+/**
+ * Normalize a search query: trim surrounding whitespace, collapse internal
+ * runs of whitespace to a single space, and lower-case for comparison.
+ * Returns an empty string when the input is blank.
+ */
+function normalize(q) {
+  return (q || '').replace(/\s+/g, ' ').trim();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ── Auth Middleware ─────────────────────────────────────────════════════════
 // ═══════════════════════════════════════════════════════════════════════════
@@ -96,12 +105,14 @@ async function requireAdmin(request, env) {
 /**
  * GET /api/search?q=<query>&lang=<all|mon|burmese|english>
  *
- * Searches the `names` table and `aliases` table using a LIKE query.
- * Results are ordered: verified first, then alphabetically by English.
+ * Searches the `names` table (mon, burmese, english columns) and the
+ * `aliases` table using safe bound-parameter LIKE queries.
+ * Results are ordered: verified first, then alphabetically by English name.
+ * Maximum 25 results are returned.
  */
 async function handleSearch(request, env) {
   const url = new URL(request.url);
-  const q = (url.searchParams.get('q') || '').trim();
+  const q = normalize(url.searchParams.get('q'));
   const lang = url.searchParams.get('lang') || 'all';
 
   if (!q) return json({ results: [] });
@@ -109,21 +120,28 @@ async function handleSearch(request, env) {
 
   const like = `%${q}%`;
 
-  // Build WHERE clause and binding array based on language filter
+  // Build WHERE clause and binding array based on optional language filter
   let where, bindings;
   if (lang === 'mon') {
-    where = `WHERE (n.mon LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ?))`;
+    where = `WHERE (
+      n.mon LIKE ?
+      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ?)
+    )`;
     bindings = [like, like];
   } else if (lang === 'burmese') {
-    where = `WHERE (n.burmese LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ?))`;
+    where = `WHERE (
+      n.burmese LIKE ?
+      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ?)
+    )`;
     bindings = [like, like];
   } else if (lang === 'english') {
-    where = `WHERE (n.english LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ?))`;
+    where = `WHERE (
+      n.english LIKE ?
+      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ?)
+    )`;
     bindings = [like, like];
   } else {
+    // Search all language columns and all aliases
     where = `WHERE (
       n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ?
       OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.alias LIKE ?)
@@ -140,7 +158,7 @@ async function handleSearch(request, env) {
       FROM names n
       ${where}
       ORDER BY n.verified DESC, n.english ASC
-      LIMIT 20
+      LIMIT 25
     `).bind(...bindings).all();
 
     return json({ results: results.map(formatName) });
