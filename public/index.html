@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mon Names Converter — Search Mon, Burmese & English Names</title>
+  <meta name="description" content="Discover Mon names and their Burmese and English equivalents. Search, explore, and suggest names from the Mon heritage language." />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ── Page-specific styles ─────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: var(--space-2xl) var(--space-lg) var(--space-xl);
+    }
+
+    .hero__eyebrow {
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: var(--space-sm);
+    }
+
+    .hero__title {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: var(--space-sm);
+      line-height: 1.15;
+    }
+
+    .hero__title span {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    .hero__sub {
+      color: var(--text-muted);
+      font-size: 1rem;
+      max-width: 480px;
+      margin: 0 auto var(--space-xl);
+    }
+
+    /* ── Search bar ───────────────────────────────────────── */
+    .search-box {
+      background: var(--bg-card);
+      border-radius: var(--radius-xl);
+      border: 2px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-sm);
+      display: flex;
+      gap: var(--space-sm);
+      align-items: center;
+      max-width: 640px;
+      margin: 0 auto var(--space-md);
+      transition: border-color var(--duration), box-shadow var(--duration);
+    }
+
+    .search-box:focus-within {
+      border-color: var(--primary-light);
+      box-shadow: 0 12px 48px rgba(26, 61, 43, 0.18);
+    }
+
+    .search-box__input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 1.05rem;
+      font-family: var(--font-body);
+      color: var(--text);
+      padding: var(--space-sm) var(--space-md);
+      outline: none;
+      min-width: 0;
+    }
+
+    .search-box__input::placeholder {
+      color: var(--text-faint);
+    }
+
+    .search-box__input:focus {
+      border: none;
+      box-shadow: none;
+    }
+
+    .search-box__btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius-lg);
+      padding: 10px 22px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--duration), transform var(--duration);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .search-box__btn:hover {
+      background: var(--primary-mid);
+      transform: scale(1.02);
+    }
+
+    /* ── Language filter ──────────────────────────────────── */
+    .lang-filter {
+      display: flex;
+      justify-content: center;
+      gap: var(--space-xs);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-xl);
+    }
+
+    .lang-chip {
+      padding: 5px 14px;
+      border-radius: 100px;
+      border: 1.5px solid var(--border);
+      background: transparent;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--duration) var(--ease);
+      font-family: var(--font-body);
+    }
+
+    .lang-chip:hover {
+      border-color: var(--primary-light);
+      color: var(--primary);
+    }
+
+    .lang-chip.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    /* ── Results ──────────────────────────────────────────── */
+    .results-section {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 var(--space-lg) var(--space-2xl);
+    }
+
+    .results-meta {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-bottom: var(--space-md);
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+
+    .results-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-md);
+    }
+
+    /* ── Name card ────────────────────────────────────────── */
+    .name-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border-light);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      animation: fadeUp 0.3s var(--ease) both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .name-card:nth-child(2) { animation-delay: 0.04s; }
+    .name-card:nth-child(3) { animation-delay: 0.08s; }
+    .name-card:nth-child(4) { animation-delay: 0.12s; }
+    .name-card:nth-child(5) { animation-delay: 0.16s; }
+
+    .name-card:hover {
+      border-color: var(--border);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+      transition: all var(--duration) var(--ease);
+    }
+
+    .name-card__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: var(--space-md) var(--space-lg) var(--space-sm);
+      gap: var(--space-md);
+    }
+
+    .name-card__badges {
+      display: flex;
+      gap: var(--space-xs);
+      flex-wrap: wrap;
+      padding-top: 2px;
+    }
+
+    .name-card__body {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+      padding: 0 var(--space-lg) var(--space-md);
+    }
+
+    @media (max-width: 540px) {
+      .name-card__body { grid-template-columns: 1fr 1fr; }
+    }
+
+    .name-field {
+      padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+      border-right: 1px solid var(--border-light);
+    }
+
+    .name-field:last-child { border-right: none; }
+
+    @media (max-width: 540px) {
+      .name-field:nth-child(2) { border-right: none; }
+      .name-field:nth-child(3) { grid-column: 1 / -1; border-right: none; border-top: 1px solid var(--border-light); padding-top: var(--space-sm); }
+    }
+
+    .name-field__lang {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-faint);
+      margin-bottom: 2px;
+    }
+
+    .name-field__value {
+      font-size: 1.05rem;
+      color: var(--text);
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .name-field__value.empty {
+      color: var(--text-faint);
+      font-style: italic;
+      font-size: 0.85rem;
+      font-weight: 400;
+    }
+
+    .name-card__meaning {
+      padding: var(--space-sm) var(--space-lg) var(--space-md);
+      border-top: 1px solid var(--border-light);
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .name-card__meaning::before {
+      content: '"';
+      color: var(--accent);
+      font-size: 1.1em;
+      font-family: var(--font-display);
+    }
+    .name-card__meaning::after {
+      content: '"';
+      color: var(--accent);
+      font-size: 1.1em;
+      font-family: var(--font-display);
+    }
+
+    .name-card__aliases {
+      padding: var(--space-xs) var(--space-lg) var(--space-md);
+      display: flex;
+      gap: var(--space-xs);
+      flex-wrap: wrap;
+    }
+
+    .alias-pill {
+      padding: 2px 9px;
+      background: var(--bg-warm);
+      border-radius: 100px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Suggest section ──────────────────────────────────── */
+    .suggest-section {
+      max-width: 640px;
+      margin: var(--space-xl) auto var(--space-2xl);
+      padding: 0 var(--space-lg);
+    }
+
+    .suggest-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 2px dashed var(--border);
+      padding: var(--space-xl);
+      text-align: center;
+    }
+
+    .suggest-card__icon {
+      font-size: 2rem;
+      margin-bottom: var(--space-md);
+    }
+
+    .suggest-form {
+      text-align: left;
+      margin-top: var(--space-lg);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-md);
+    }
+
+    @media (max-width: 540px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+
+    .form-grid .form-group--full { grid-column: 1 / -1; }
+
+    .suggest-form__actions {
+      display: flex;
+      gap: var(--space-sm);
+      justify-content: flex-end;
+      margin-top: var(--space-lg);
+    }
+
+    /* ── Scripts section ──────────────────────────────────── */
+    .scripts-guide {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: var(--space-xl) var(--space-lg);
+      text-align: center;
+    }
+
+    .script-samples {
+      display: flex;
+      justify-content: center;
+      gap: var(--space-xl);
+      flex-wrap: wrap;
+      margin-top: var(--space-lg);
+    }
+
+    .script-sample {
+      text-align: center;
+    }
+
+    .script-sample__char {
+      font-size: 2.8rem;
+      line-height: 1;
+      margin-bottom: var(--space-xs);
+    }
+
+    .script-sample__label {
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/" class="site-logo">
+      <div class="site-logo__icon">မ</div>
+      <div class="site-logo__text">
+        <span class="site-logo__name">Mon Names</span>
+        <span class="site-logo__sub">Name Converter</span>
+      </div>
+    </a>
+    <nav class="site-nav">
+      <a href="/" class="active">Search</a>
+      <a href="admin.html">Admin</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ── Hero + Search ───────────────────────────────────────── -->
+<main>
+  <section class="hero">
+    <div class="hero__eyebrow">Mon · ဗမာ · English</div>
+    <h1 class="hero__title">Discover <span>Mon Names</span></h1>
+    <p class="hero__sub">Search a name in Mon, Burmese, or English and find its equivalents across all three languages.</p>
+
+    <div class="search-box" id="searchBox">
+      <input
+        type="text"
+        id="searchInput"
+        class="search-box__input"
+        placeholder="Type a name — e.g. Naing, မတ်ထဝ်, မသိုး…"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+        maxlength="100"
+      />
+      <button class="search-box__btn" id="searchBtn" aria-label="Search">
+        Search
+      </button>
+    </div>
+
+    <div class="lang-filter" role="group" aria-label="Filter by language">
+      <button class="lang-chip active" data-lang="all">All languages</button>
+      <button class="lang-chip" data-lang="mon">Mon script</button>
+      <button class="lang-chip" data-lang="burmese">Burmese</button>
+      <button class="lang-chip" data-lang="english">English / Romanised</button>
+    </div>
+  </section>
+
+  <!-- ── Results ─────────────────────────────────────────── -->
+  <section class="results-section" id="resultsSection" aria-live="polite">
+    <!-- Populated by app.js -->
+  </section>
+
+  <!-- ── Suggest section ─────────────────────────────────── -->
+  <section class="suggest-section" id="suggestSection">
+    <div class="suggest-card">
+      <div class="suggest-card__icon">✦</div>
+      <h2 style="font-size:1.2rem; margin-bottom:var(--space-sm)">Suggest a Name</h2>
+      <p class="text-muted text-small">
+        Don't see a name? Help us grow the collection by submitting it for review.
+        All suggestions are reviewed by an admin before being added.
+      </p>
+
+      <div class="suggest-form" id="suggestForm" style="display:none">
+        <div class="divider--ornament">Name details</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="sug-mon">Mon Script</label>
+            <input type="text" id="sug-mon" placeholder="e.g. မတ်ထဝ်" class="mon" />
+          </div>
+          <div class="form-group">
+            <label for="sug-burmese">Burmese / Myanmar</label>
+            <input type="text" id="sug-burmese" placeholder="e.g. မသိုး" class="bur" />
+          </div>
+          <div class="form-group">
+            <label for="sug-english">English / Romanised</label>
+            <input type="text" id="sug-english" placeholder="e.g. Ma Thoe" />
+          </div>
+          <div class="form-group">
+            <label for="sug-gender">Gender</label>
+            <select id="sug-gender">
+              <option value="neutral">Neutral / Unknown</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+          <div class="form-group form-group--full">
+            <label for="sug-meaning">Meaning (optional)</label>
+            <input type="text" id="sug-meaning" placeholder="e.g. Bright, shining one" />
+          </div>
+          <div class="form-group form-group--full">
+            <label for="sug-submitter">Your name / email (optional)</label>
+            <input type="text" id="sug-submitter" placeholder="So we can credit you" />
+          </div>
+        </div>
+
+        <div id="suggestAlert" class="mt-md" style="display:none"></div>
+
+        <div class="suggest-form__actions">
+          <button class="btn btn--ghost" id="cancelSuggestBtn">Cancel</button>
+          <button class="btn btn--accent" id="submitSuggestBtn">Submit suggestion →</button>
+        </div>
+      </div>
+
+      <div id="suggestToggle" class="mt-lg">
+        <button class="btn btn--ghost" id="openSuggestBtn">+ Submit a name</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Scripts guide ──────────────────────────────────── -->
+  <section class="scripts-guide">
+    <div class="divider--ornament">About Mon Script</div>
+    <p class="text-muted text-small" style="max-width:500px; margin:0 auto">
+      Mon script (ဘာသာမန်) is one of the oldest scripts in Southeast Asia, predating
+      the Burmese script. Names may be written in traditional Mon script, Burmese script,
+      or romanised English form.
+    </p>
+    <div class="script-samples">
+      <div class="script-sample">
+        <div class="script-sample__char mon">မ</div>
+        <div class="script-sample__label">Mon script</div>
+      </div>
+      <div class="script-sample">
+        <div class="script-sample__char bur">မ</div>
+        <div class="script-sample__label">Burmese script</div>
+      </div>
+      <div class="script-sample">
+        <div class="script-sample__char" style="font-family:var(--font-display); font-style:italic; color:var(--accent)">Ma</div>
+        <div class="script-sample__label">Romanised</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────── -->
+<footer class="site-footer">
+  <p>Mon Names Converter · Built to preserve and share Mon language heritage</p>
+  <p style="margin-top:4px"><a href="admin.html">Admin panel</a></p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

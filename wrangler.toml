@@ -1,0 +1,26 @@
+name = "mon-names-converter"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# ─── Static Assets ─────────────────────────────────────────────────────────
+# Files in /public are served automatically. The worker handles /api/* first.
+[assets]
+directory = "./public"
+not_found_handling = "none"
+
+# ─── D1 Database ───────────────────────────────────────────────────────────
+# After running `npm run db:create`, paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "mon-names-db"
+database_id = "YOUR_D1_DATABASE_ID_HERE"
+
+# ─── Environment Variables ─────────────────────────────────────────────────
+# DEV ONLY — for production, run:  wrangler secret put ADMIN_PASSWORD
+[vars]
+ADMIN_PASSWORD = "change-me-before-deploying"
+
+# ─── Local Dev Overrides ───────────────────────────────────────────────────
+[dev]
+port = 8787
+local_protocol = "http"

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Panel — Mon Names Converter</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ── Admin-specific layout ────────────────────────────── */
+    .admin-layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: calc(100vh - 62px);
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 768px) {
+      .admin-layout { grid-template-columns: 1fr; }
+    }
+
+    /* ── Sidebar ──────────────────────────────────────────── */
+    .admin-sidebar {
+      background: var(--primary);
+      color: white;
+      padding: var(--space-xl) var(--space-md);
+      min-height: 100%;
+    }
+
+    @media (max-width: 768px) {
+      .admin-sidebar {
+        padding: var(--space-md);
+        display: flex;
+        gap: var(--space-sm);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+    }
+
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-xs);
+      margin-top: var(--space-md);
+    }
+
+    @media (max-width: 768px) {
+      .sidebar-nav { flex-direction: row; margin-top: 0; }
+    }
+
+    .sidebar-nav__item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: 10px var(--space-md);
+      border-radius: var(--radius-sm);
+      color: rgba(255,255,255,0.7);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      font-weight: 500;
+      width: 100%;
+      text-align: left;
+      transition: all var(--duration);
+    }
+
+    .sidebar-nav__item:hover {
+      background: rgba(255,255,255,0.1);
+      color: white;
+    }
+
+    .sidebar-nav__item.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .sidebar-nav__badge {
+      margin-left: auto;
+      background: rgba(255,255,255,0.2);
+      border-radius: 100px;
+      padding: 1px 7px;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+
+    .sidebar-nav__item.active .sidebar-nav__badge {
+      background: rgba(255,255,255,0.3);
+    }
+
+    .sidebar-section-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      padding: var(--space-md) var(--space-md) var(--space-xs);
+    }
+
+    @media (max-width: 768px) {
+      .sidebar-section-label { display: none; }
+    }
+
+    /* ── Main content ─────────────────────────────────────── */
+    .admin-main {
+      padding: var(--space-xl);
+      overflow: hidden;
+    }
+
+    @media (max-width: 640px) {
+      .admin-main { padding: var(--space-md); }
+    }
+
+    .admin-page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-xl);
+      gap: var(--space-md);
+      flex-wrap: wrap;
+    }
+
+    .admin-page-header h2 {
+      margin: 0;
+    }
+
+    .admin-page-header__actions {
+      display: flex;
+      gap: var(--space-sm);
+    }
+
+    /* ── Stat cards ───────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--space-md);
+      margin-bottom: var(--space-xl);
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border-light);
+      padding: var(--space-lg);
+    }
+
+    .stat-card__value {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+    }
+
+    .stat-card__label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-top: var(--space-xs);
+    }
+
+    /* ── Search / filter bar ──────────────────────────────── */
+    .admin-toolbar {
+      display: flex;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+      flex-wrap: wrap;
+    }
+
+    .admin-toolbar input {
+      max-width: 320px;
+    }
+
+    /* ── Name form inside modal ───────────────────────────── */
+    .alias-row {
+      display: flex;
+      gap: var(--space-sm);
+      align-items: center;
+      margin-bottom: var(--space-sm);
+    }
+
+    .alias-row input { flex: 1; }
+    .alias-row select { width: 140px; flex-shrink: 0; }
+    .alias-row button { flex-shrink: 0; }
+
+    /* ── Suggestion cards ─────────────────────────────────── */
+    .sugg-card {
+      background: var(--bg-card);
+      border: 1.5px solid var(--border-light);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      margin-bottom: var(--space-md);
+      display: flex;
+      gap: var(--space-lg);
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .sugg-card__body {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .sugg-card__names {
+      display: flex;
+      gap: var(--space-lg);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-sm);
+    }
+
+    .sugg-card__field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .sugg-card__field-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-faint);
+      font-weight: 700;
+    }
+
+    .sugg-card__field-val {
+      font-size: 1.05rem;
+      color: var(--text);
+    }
+
+    .sugg-card__actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+      flex-shrink: 0;
+    }
+
+    /* ── Login screen ─────────────────────────────────────── */
+    .login-screen {
+      min-height: calc(100vh - 62px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-xl);
+    }
+
+    .login-card {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-xl);
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .login-card__logo {
+      text-align: center;
+      margin-bottom: var(--space-xl);
+    }
+
+    .login-card__icon {
+      width: 56px;
+      height: 56px;
+      background: var(--primary);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mon);
+      font-size: 1.6rem;
+      color: var(--accent);
+      margin: 0 auto var(--space-md);
+    }
+
+    /* ── Pagination ───────────────────────────────────────── */
+    .pagination {
+      display: flex;
+      gap: var(--space-xs);
+      align-items: center;
+      justify-content: center;
+      margin-top: var(--space-lg);
+    }
+
+    .pag-btn {
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      border: 1.5px solid var(--border);
+      background: var(--bg-card);
+      font-size: 0.875rem;
+      cursor: pointer;
+      color: var(--text-mid);
+      transition: all var(--duration);
+    }
+
+    .pag-btn:hover { border-color: var(--primary-light); color: var(--primary); }
+    .pag-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .pag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="site-header__inner">
+    <a href="/" class="site-logo">
+      <div class="site-logo__icon">မ</div>
+      <div class="site-logo__text">
+        <span class="site-logo__name">Mon Names</span>
+        <span class="site-logo__sub">Admin Panel</span>
+      </div>
+    </a>
+    <nav class="site-nav" id="adminNav" style="display:none">
+      <a href="/">← Public site</a>
+      <button class="btn btn--ghost btn--sm" id="logoutBtn" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.3)">
+        Log out
+      </button>
+    </nav>
+  </div>
+</header>
+
+<!-- ── Login Screen (shown when not authenticated) ─────────── -->
+<div id="loginScreen">
+  <div class="login-screen">
+    <div class="login-card">
+      <div class="login-card__logo">
+        <div class="login-card__icon">မ</div>
+        <h2 style="font-size:1.4rem">Admin Login</h2>
+        <p class="text-muted text-small mt-sm">Mon Names Converter</p>
+      </div>
+
+      <div class="form-group">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" placeholder="Enter admin password" />
+      </div>
+
+      <div id="loginAlert" class="mt-md" style="display:none"></div>
+
+      <button class="btn btn--primary w-full mt-lg" id="loginBtn">
+        Sign in →
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Admin Dashboard (shown when authenticated) ───────────── -->
+<div id="adminDashboard" style="display:none">
+  <div class="admin-layout">
+
+    <!-- Sidebar -->
+    <aside class="admin-sidebar">
+      <div class="sidebar-section-label">Manage</div>
+      <nav class="sidebar-nav">
+        <button class="sidebar-nav__item active" data-panel="names" id="navNames">
+          📚 Names
+          <span class="sidebar-nav__badge" id="namesBadge">—</span>
+        </button>
+        <button class="sidebar-nav__item" data-panel="suggestions" id="navSuggestions">
+          📥 Suggestions
+          <span class="sidebar-nav__badge" id="suggBadge">—</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="admin-main">
+
+      <!-- ── Names Panel ─────────────────────────────────── -->
+      <div id="panelNames">
+        <div class="admin-page-header">
+          <div>
+            <h2>Name Entries</h2>
+            <p class="text-muted text-small">All Mon, Burmese, and English name entries</p>
+          </div>
+          <div class="admin-page-header__actions">
+            <button class="btn btn--accent" id="createNameBtn">+ New entry</button>
+          </div>
+        </div>
+
+        <div class="stat-grid" id="nameStats">
+          <div class="stat-card">
+            <div class="stat-card__value" id="statTotal">—</div>
+            <div class="stat-card__label">Total names</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="statVerified">—</div>
+            <div class="stat-card__label">Verified</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__value" id="statPending">—</div>
+            <div class="stat-card__label">Pending suggestions</div>
+          </div>
+        </div>
+
+        <div class="admin-toolbar">
+          <input type="text" id="nameFilter" placeholder="Filter names…" style="max-width:280px" />
+        </div>
+
+        <div class="table-wrap">
+          <table id="namesTable">
+            <thead>
+              <tr>
+                <th>Mon</th>
+                <th>Burmese</th>
+                <th>English</th>
+                <th>Meaning</th>
+                <th>Gender</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="namesTableBody">
+              <tr><td colspan="7"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="namesPagination"></div>
+      </div>
+
+      <!-- ── Suggestions Panel ──────────────────────────── -->
+      <div id="panelSuggestions" style="display:none">
+        <div class="admin-page-header">
+          <div>
+            <h2>Suggestions</h2>
+            <p class="text-muted text-small">Review user-submitted name suggestions</p>
+          </div>
+          <div class="admin-page-header__actions">
+            <div class="tabs">
+              <button class="tab-btn active" data-status="pending">Pending</button>
+              <button class="tab-btn" data-status="approved">Approved</button>
+              <button class="tab-btn" data-status="rejected">Rejected</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="suggestionsContainer">
+          <div class="spinner"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── Name Create/Edit Modal ───────────────────────────────── -->
+<div class="modal-backdrop" id="nameModal" role="dialog" aria-modal="true" aria-labelledby="nameModalTitle">
+  <div class="modal">
+    <div class="modal__header">
+      <h3 id="nameModalTitle">New Name Entry</h3>
+      <button class="modal__close" id="nameModalClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal__body">
+      <input type="hidden" id="editNameId" />
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="f-mon">Mon Script</label>
+          <input type="text" id="f-mon" placeholder="မတ်ထဝ်" class="mon" />
+        </div>
+        <div class="form-group">
+          <label for="f-burmese">Burmese / Myanmar</label>
+          <input type="text" id="f-burmese" placeholder="မသိုး" class="bur" />
+        </div>
+        <div class="form-group">
+          <label for="f-english">English / Romanised</label>
+          <input type="text" id="f-english" placeholder="Ma Thoe" />
+        </div>
+        <div class="form-group">
+          <label for="f-gender">Gender</label>
+          <select id="f-gender">
+            <option value="neutral">Neutral</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </div>
+        <div class="form-group form-group--full">
+          <label for="f-meaning">Meaning</label>
+          <input type="text" id="f-meaning" placeholder="e.g. Shining one; luminous" />
+        </div>
+        <div class="form-group form-group--full">
+          <label>
+            <input type="checkbox" id="f-verified" style="margin-right:6px" />
+            Mark as Verified ✦
+          </label>
+          <span class="form-hint">Verified names show a gold badge on the public site.</span>
+        </div>
+      </div>
+
+      <hr class="divider" />
+
+      <label>Aliases / Alternate Spellings</label>
+      <p class="form-hint mb-md">Add alternate romanisations or script variants for this name.</p>
+
+      <div id="aliasRows"><!-- populated by JS --></div>
+
+      <button class="btn btn--ghost btn--sm mt-sm" id="addAliasBtn">+ Add alias</button>
+
+      <div id="nameModalAlert" class="mt-md" style="display:none"></div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" id="nameModalCancel">Cancel</button>
+      <button class="btn btn--primary" id="nameModalSave">Save entry</button>
+    </div>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>

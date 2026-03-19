@@ -1,0 +1,18 @@
+{
+  "name": "mon-names-converter",
+  "version": "1.0.0",
+  "description": "Mon Names Converter – search and discover Mon, Burmese, and English name equivalents",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create mon-names-db",
+    "db:migrate:local": "wrangler d1 migrations apply mon-names-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mon-names-db --remote",
+    "db:studio": "wrangler d1 execute mon-names-db --local --command='SELECT * FROM names LIMIT 10'",
+    "db:reset:local": "wrangler d1 execute mon-names-db --local --file=./migrations/0001_init.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}
