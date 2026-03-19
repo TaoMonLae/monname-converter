@@ -137,9 +137,10 @@ function renderNameCard(name, index) {
     ? `<span class="badge badge--verified">Verified</span>`
     : '';
 
-  const monVal    = name.mon     ? `<span class="mon">${escHtml(name.mon)}</span>`     : `<span class="empty">—</span>`;
-  const burVal    = name.burmese ? `<span class="bur">${escHtml(name.burmese)}</span>` : `<span class="empty">—</span>`;
-  const engVal    = name.english ? `<span class="eng">${escHtml(name.english)}</span>` : `<span class="empty">—</span>`;
+  const monVal  = name.mon     ? `<span class="mon">${escHtml(name.mon)}</span>`     : `<span class="empty">—</span>`;
+  const burVal  = name.burmese ? `<span class="bur">${escHtml(name.burmese)}</span>` : `<span class="empty">—</span>`;
+  const engVal  = name.english ? `<span class="eng">${escHtml(name.english)}</span>` : `<span class="empty">—</span>`;
+
   const meaningHtml = name.meaning
     ? `<div class="name-card__meaning">${escHtml(name.meaning)}</div>`
     : '';
@@ -200,12 +201,13 @@ function closeSuggestForm() {
 }
 
 function clearSuggestForm() {
-  document.getElementById('sug-mon').value = '';
+  document.getElementById('sug-mon').value     = '';
   document.getElementById('sug-burmese').value = '';
   document.getElementById('sug-english').value = '';
   document.getElementById('sug-meaning').value = '';
+  document.getElementById('sug-aliases').value = '';
   document.getElementById('sug-submitter').value = '';
-  document.getElementById('sug-gender').value = 'neutral';
+  document.getElementById('sug-gender').value  = 'neutral';
   hideSuggestAlert();
 }
 
@@ -216,9 +218,8 @@ function clearSuggestForm() {
 function autoFillSuggest(query) {
   if (!query) return;
   const script = detectScript(query);
-  if (script === 'mon' || script === 'burmese') {
-    // Can't reliably distinguish Mon vs Burmese without more analysis;
-    // put in Burmese field as a starting point
+  if (script === 'burmese' || script === 'mon') {
+    // Both scripts use the same Unicode block; put in Burmese field as a starting point
     document.getElementById('sug-burmese').value = query;
   } else {
     document.getElementById('sug-english').value = query;
@@ -229,26 +230,32 @@ openSuggestBtn.addEventListener('click', openSuggestForm);
 cancelSuggestBtn.addEventListener('click', closeSuggestForm);
 
 submitSuggestBtn.addEventListener('click', async () => {
-  const mon       = document.getElementById('sug-mon').value.trim();
-  const burmese   = document.getElementById('sug-burmese').value.trim();
-  const english   = document.getElementById('sug-english').value.trim();
-  const meaning   = document.getElementById('sug-meaning').value.trim();
-  const gender    = document.getElementById('sug-gender').value;
+  const mon        = document.getElementById('sug-mon').value.trim();
+  const burmese    = document.getElementById('sug-burmese').value.trim();
+  const english    = document.getElementById('sug-english').value.trim();
+  const meaning    = document.getElementById('sug-meaning').value.trim();
+  const gender     = document.getElementById('sug-gender').value;
   const submitted_by = document.getElementById('sug-submitter').value.trim();
+  const aliasesRaw = document.getElementById('sug-aliases').value.trim();
 
   if (!mon && !burmese && !english) {
     showSuggestAlert('Please fill in at least one name field.', 'danger');
     return;
   }
 
+  // Parse comma-separated aliases as english-language aliases
+  const aliases = aliasesRaw
+    ? aliasesRaw.split(',').map(a => a.trim()).filter(Boolean).map(alias => ({ alias, language: 'english' }))
+    : [];
+
   submitSuggestBtn.disabled = true;
   submitSuggestBtn.textContent = 'Submitting…';
 
   try {
-    const res = await fetch(`${API_BASE}/suggest`, {
+    const res = await fetch(`${API_BASE}/suggestions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mon, burmese, english, meaning, gender, submitted_by }),
+      body: JSON.stringify({ mon, burmese, english, meaning, gender, submitted_by, aliases }),
     });
     const data = await res.json();
 
@@ -297,11 +304,11 @@ function capitalize(str) {
 
 /**
  * Detect the script of a query string.
- * Returns 'mon'|'burmese'|'english'|'unknown'
- * Note: Mon and Burmese share Unicode ranges; this is a heuristic.
+ * Returns 'mon'|'burmese'|'english'|'unknown'.
+ * Note: Mon and Burmese share the Myanmar Unicode block; this is a heuristic.
  */
 function detectScript(text) {
-  // Myanmar / Burmese Unicode block: U+1000–U+109F
+  // Myanmar/Mon/Burmese: U+1000–U+109F
   if (/[\u1000-\u109F]/.test(text)) return 'burmese';
   // Mon-Burmese extended: U+AA60–U+AA7F
   if (/[\uAA60-\uAA7F]/.test(text)) return 'mon';

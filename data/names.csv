@@ -1,9 +1,13 @@
-mon,bur,eng,meaning,gender,verified,aliases
-နာဲဗြာ,နိုင်ဗြာ,Naing Kyar,Future brightness; long-lasting glory,male,1,Naing Kya:english|Naing Kyar:english
-မတ်ထဝ်,မွတ်ထော,Moot Taw,Shining one; luminous,female,1,Ma Toe:english
-မိဥ်ꩫ်,မင်းသည်,Min Thi,Royalty; nobility of character,male,1,Min Thi:english|Min Ti:english
+mon,burmese,english,meaning,gender,verified,aliases
+နာင်ဗြာ,နောင်ကြာ,Naing Kyar,Future brightness; long-lasting glory,male,1,Naing Kya:english|Naing Kyar:english
+မတ်ထဝ်,မသိုး,Ma Thoe,Shining one; luminous,female,1,Ma Toe:english|Moot Taw:english
+မိဥ်ꩫ်,မင်းသည်,Min Thi,Royalty; nobility of character,male,1,Min Ti:english|Min Thit:english
 ဍုင်,မြို့,Dung,City; homeland; place of origin,neutral,1,
 ဗြဲ,ကြယ်,Hkre,Star; celestial light,neutral,1,Kre:english
 မိစိုတ်,မသက်,Mi Sot,Living; full of life and vitality,female,1,
 နာင်ꩦ်,နောင်ထွတ်,Naing Htut,Future peak; rising high,male,1,Naing Htoot:english
-ဒြဲ,ကြဲ,Hkre,Brave; courageous spirit,male,1,
+ဒြဲ,ကြဲ,Dre,Brave; courageous spirit,male,1,Hkre:english
+မိမိ,မေမေ,Mi Mi,Beloved; dear one; affectionate address,female,1,Mee Mee:english|Mi Mi:english
+ဍာ်မိ,ကြည်မေ,Dah Mi,Clear as water; pure and bright,female,1,Da Mi:english
+နာင်ဍာ်,နောင်ရေ,Naing Da,Calm and deep as water; future flow,male,1,Naing Dar:english
+မတ်ဗြာ,မဆောင်း,Mat Bra,Glorious bearer; one who carries light,female,0,
