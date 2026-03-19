@@ -84,8 +84,8 @@ const col    = name => {
 };
 
 const iMon      = col('mon');
-const iBurmese  = col('burmese');
-const iEnglish  = col('english');
+const iBurmese  = col('bur');
+const iEnglish  = col('eng');
 const iMeaning  = col('meaning');
 const iGender   = col('gender');
 const iVerified = col('verified');
