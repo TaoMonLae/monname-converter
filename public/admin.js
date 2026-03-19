@@ -254,7 +254,7 @@ function renderNamesTable(names) {
       <td>
         <div class="td-actions">
           <button class="btn btn--ghost btn--sm" onclick="openEditModal(${name.id})">Edit</button>
-          <button class="btn btn--danger btn--sm" onclick="deleteName(${name.id}, '${escHtml(name.english || name.mon || 'this entry')}')">Delete</button>
+          <button class="btn btn--danger btn--sm" onclick="deleteName(${name.id})">Delete</button>
         </div>
       </td>
     </tr>
@@ -277,7 +277,11 @@ function renderPagination(page, totalPages) {
 }
 
 // ── Delete ────────────────────────────────────────────────────
-async function deleteName(id, label) {
+// Note: label is looked up from allNames rather than being passed via onclick,
+// so apostrophes and other characters in names cannot break the inline JS.
+async function deleteName(id) {
+  const entry = allNames.find(n => n.id === id);
+  const label = entry ? (entry.english || entry.mon || `Entry #${id}`) : `Entry #${id}`;
   if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
   try {
     await apiFetch(`${API}/admin/names/${id}`, { method: 'DELETE' });
@@ -358,7 +362,23 @@ nameModalCancel.addEventListener('click', () => closeModal(nameModal));
 nameModal.addEventListener('click', e => { if (e.target === nameModal) closeModal(nameModal); });
 
 // ── Aliases ───────────────────────────────────────────────────
+
+/**
+ * Read current input values from the alias DOM rows back into editingAliases.
+ * Must be called before any operation that re-renders the rows, so that text
+ * typed without triggering onchange (no blur yet) is not lost.
+ */
+function syncAliasesFromDom() {
+  aliasRows.querySelectorAll('.alias-row').forEach((row, i) => {
+    if (editingAliases[i]) {
+      editingAliases[i].alias    = row.querySelector('input').value;
+      editingAliases[i].language = row.querySelector('select').value;
+    }
+  });
+}
+
 addAliasBtn.addEventListener('click', () => {
+  syncAliasesFromDom();
   editingAliases.push({ alias: '', language: 'english' });
   renderAliasRows();
 });
@@ -383,6 +403,7 @@ function renderAliasRows() {
 }
 
 function removeAlias(index) {
+  syncAliasesFromDom();
   editingAliases.splice(index, 1);
   renderAliasRows();
 }
