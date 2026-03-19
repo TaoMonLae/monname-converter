@@ -6,11 +6,11 @@
  *
  * CSV columns (header row required):
  *   mon        — name in Mon script              (required)
- *   burmese    — name in Burmese/Myanmar script  (optional)
- *   english    — romanised / English spelling     (optional)
- *   meaning    — meaning, usage notes             (optional)
- *   gender     — male | female | neutral          (defaults to neutral)
- *   verified   — 1 | 0                            (defaults to 1)
+ *   burmese    — name in Burmese/Myanmar script  (optional; also accepts "bur")
+ *   english    — romanised / English spelling    (optional; also accepts "eng")
+ *   meaning    — meaning, usage notes            (optional)
+ *   gender     — male | female | neutral         (defaults to neutral)
+ *   verified   — 1 | 0                           (defaults to 1)
  *   aliases    — pipe-separated alias:language pairs, e.g.
  *                "Naing Kya:english|Naing Kyar:english"  (optional)
  *
@@ -75,17 +75,23 @@ if (rows.length < 2) {
 const VALID_GENDERS   = new Set(['male', 'female', 'neutral']);
 const VALID_LANGUAGES = new Set(['mon', 'burmese', 'english']);
 
-// Map header names to column indices
+// Map header names to column indices.
+// Accepts both short forms (bur, eng) and long forms (burmese, english).
 const header = rows[0].map(h => h.trim().toLowerCase());
-const col    = name => {
-  const i = header.indexOf(name);
-  if (i === -1) throw new Error(`CSV is missing required column: "${name}"`);
-  return i;
-};
+
+function col(name, ...aliases) {
+  const candidates = [name, ...aliases];
+  for (const candidate of candidates) {
+    const i = header.indexOf(candidate);
+    if (i !== -1) return i;
+  }
+  const tried = candidates.join('", "');
+  throw new Error(`CSV is missing required column: "${tried}"`);
+}
 
 const iMon      = col('mon');
-const iBurmese  = col('burmese');
-const iEnglish  = col('english');
+const iBurmese  = col('burmese', 'bur');
+const iEnglish  = col('english', 'eng');
 const iMeaning  = col('meaning');
 const iGender   = col('gender');
 const iVerified = col('verified');

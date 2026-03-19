@@ -22,15 +22,19 @@ INSERT OR IGNORE INTO aliases (name_id, alias, language)
 SELECT id, 'Ma Toe', 'english'
 FROM names WHERE mon = 'မတ်ထဝ်' AND english = 'Ma Thoe';
 
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Moot Taw', 'english'
+FROM names WHERE mon = 'မတ်ထဝ်' AND english = 'Ma Thoe';
+
 INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
 VALUES ('မိဥ်ꩫ်', 'မင်းသည်', 'Min Thi', 'Royalty; nobility of character', 'male', 1);
 
 INSERT OR IGNORE INTO aliases (name_id, alias, language)
-SELECT id, 'Min Thi', 'english'
+SELECT id, 'Min Ti', 'english'
 FROM names WHERE mon = 'မိဥ်ꩫ်' AND english = 'Min Thi';
 
 INSERT OR IGNORE INTO aliases (name_id, alias, language)
-SELECT id, 'Min Ti', 'english'
+SELECT id, 'Min Thit', 'english'
 FROM names WHERE mon = 'မိဥ်ꩫ်' AND english = 'Min Thi';
 
 INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
@@ -54,4 +58,36 @@ SELECT id, 'Naing Htoot', 'english'
 FROM names WHERE mon = 'နာင်ꩦ်' AND english = 'Naing Htut';
 
 INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
-VALUES ('ဒြဲ', 'ကြဲ', 'Hkre', 'Brave; courageous spirit', 'male', 1);
+VALUES ('ဒြဲ', 'ကြဲ', 'Dre', 'Brave; courageous spirit', 'male', 1);
+
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Hkre', 'english'
+FROM names WHERE mon = 'ဒြဲ' AND english = 'Dre';
+
+INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
+VALUES ('မိမိ', 'မေမေ', 'Mi Mi', 'Beloved; dear one; affectionate address', 'female', 1);
+
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Mee Mee', 'english'
+FROM names WHERE mon = 'မိမိ' AND english = 'Mi Mi';
+
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Mi Mi', 'english'
+FROM names WHERE mon = 'မိမိ' AND english = 'Mi Mi';
+
+INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
+VALUES ('ဍာ်မိ', 'ကြည်မေ', 'Dah Mi', 'Clear as water; pure and bright', 'female', 1);
+
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Da Mi', 'english'
+FROM names WHERE mon = 'ဍာ်မိ' AND english = 'Dah Mi';
+
+INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
+VALUES ('နာင်ဍာ်', 'နောင်ရေ', 'Naing Da', 'Calm and deep as water; future flow', 'male', 1);
+
+INSERT OR IGNORE INTO aliases (name_id, alias, language)
+SELECT id, 'Naing Dar', 'english'
+FROM names WHERE mon = 'နာင်ဍာ်' AND english = 'Naing Da';
+
+INSERT OR IGNORE INTO names (mon, burmese, english, meaning, gender, verified)
+VALUES ('မတ်ဗြာ', 'မဆောင်း', 'Mat Bra', 'Glorious bearer; one who carries light', 'female', 0);

@@ -2,16 +2,14 @@
  * Mon Names Converter — Admin Frontend
  * ======================================
  * Handles: login/logout, names CRUD, suggestion review.
- * Token stored in sessionStorage (clears when tab closes).
+ * Auth uses HttpOnly cookies set by the server — no token management in JS.
  * No framework — plain ES2020+.
  */
 
 // ── Config ───────────────────────────────────────────────────
 const API = '/api';
-const TOKEN_KEY = 'mon_admin_token';
 
 // ── State ────────────────────────────────────────────────────
-let token = sessionStorage.getItem(TOKEN_KEY) || '';
 let currentNamesPage = 1;
 let currentSuggestionStatus = 'pending';
 let allNames = [];           // local copy for client-side filter
@@ -90,8 +88,7 @@ async function doLogin() {
 
     if (!res.ok) throw new Error(data.error || 'Login failed');
 
-    token = data.token;
-    sessionStorage.setItem(TOKEN_KEY, token);
+    // Server sets HttpOnly cookie — no token to store in JS
     loginPassword.value = '';
     showDashboard();
     initDashboard();
@@ -104,27 +101,20 @@ async function doLogin() {
 }
 
 logoutBtn.addEventListener('click', async () => {
-  await apiFetch('/api/admin/logout', { method: 'POST' });
-  token = '';
-  sessionStorage.removeItem(TOKEN_KEY);
+  // Server clears the cookie via Set-Cookie: Max-Age=0
+  await fetch(`${API}/admin/logout`, { method: 'POST' }).catch(() => {});
   showLoginScreen();
 });
 
-// ── Auth guard ───────────────────────────────────────────────
-function init() {
-  if (token) {
-    // Verify the token is still valid by fetching something lightweight
-    apiFetch(`/api/admin/names?page=1`)
-      .then(() => {
-        showDashboard();
-        initDashboard();
-      })
-      .catch(() => {
-        token = '';
-        sessionStorage.removeItem(TOKEN_KEY);
-        showLoginScreen();
-      });
-  } else {
+// ── Auth guard on page load ───────────────────────────────────
+// Try a lightweight authenticated request; show dashboard if it succeeds,
+// login screen if the cookie is absent or expired.
+async function init() {
+  try {
+    await apiFetch(`${API}/admin/stats`);
+    showDashboard();
+    initDashboard();
+  } catch {
     showLoginScreen();
   }
 }
@@ -133,21 +123,22 @@ function init() {
 // ── API Helper ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * Wrapper around fetch for admin API calls.
+ * Cookies are sent automatically (same-origin). On 401 it redirects to login.
+ */
 async function apiFetch(url, options = {}) {
   const res = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
       ...(options.headers || {}),
     },
   });
 
   if (res.status === 401) {
-    token = '';
-    sessionStorage.removeItem(TOKEN_KEY);
     showLoginScreen();
-    throw new Error('Session expired');
+    throw new Error('Session expired — please log in again');
   }
 
   const data = await res.json().catch(() => ({}));
@@ -186,9 +177,28 @@ suggTabs.forEach(tab => {
 
 async function initDashboard() {
   await Promise.all([
+    loadStats(),
     loadNames(1),
-    loadSuggestionsBadge(),
   ]);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── Stats ───────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Load accurate dashboard counts from the dedicated stats endpoint.
+ * statVerified uses the server-side total, not a page-level count.
+ */
+async function loadStats() {
+  try {
+    const data = await apiFetch(`${API}/admin/stats`);
+    statTotal.textContent   = data.total;
+    statVerified.textContent = data.totalVerified;
+    statPending.textContent = data.pendingSuggestions;
+    namesBadge.textContent  = data.total;
+    suggBadge.textContent   = data.pendingSuggestions;
+  } catch { /* ignore — stat cards show stale values */ }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -203,11 +213,7 @@ async function loadNames(page = 1) {
     const data = await apiFetch(`${API}/admin/names?page=${page}`);
     allNames = data.results;
 
-    // Update stats
-    statTotal.textContent   = data.total;
-    statVerified.textContent = data.results.filter(n => n.verified).length;
-    namesBadge.textContent  = data.total;
-
+    namesBadge.textContent = data.total;
     renderNamesTable(data.results);
     renderPagination(data.page, data.totalPages);
   } catch (e) {
@@ -275,7 +281,7 @@ async function deleteName(id, label) {
   if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
   try {
     await apiFetch(`${API}/admin/names/${id}`, { method: 'DELETE' });
-    await loadNames(currentNamesPage);
+    await Promise.all([loadNames(currentNamesPage), loadStats()]);
   } catch (e) {
     alert(`Failed to delete: ${e.message}`);
   }
@@ -325,7 +331,6 @@ nameModalSave.addEventListener('click', async () => {
     return;
   }
 
-  // Collect valid aliases from the DOM rows
   const aliases = collectAliases();
 
   nameModalSave.disabled = true;
@@ -339,7 +344,7 @@ nameModalSave.addEventListener('click', async () => {
       await apiFetch(`${API}/admin/names`, { method: 'POST', body: JSON.stringify(payload) });
     }
     closeModal(nameModal);
-    await loadNames(currentNamesPage);
+    await Promise.all([loadNames(currentNamesPage), loadStats()]);
   } catch (e) {
     showAlert(nameModalAlert, e.message || 'Save failed', 'danger');
   } finally {
@@ -406,15 +411,6 @@ function clearNameForm() {
 // ── Suggestions ─────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
-async function loadSuggestionsBadge() {
-  try {
-    const data = await apiFetch(`${API}/admin/suggestions?status=pending`);
-    const count = data.results.length;
-    suggBadge.textContent = count;
-    statPending.textContent = count;
-  } catch { /* ignore */ }
-}
-
 async function loadSuggestions(status = 'pending') {
   currentSuggestionStatus = status;
   suggestionsContainer.innerHTML = '<div class="spinner"></div>';
@@ -442,15 +438,30 @@ function renderSuggestions(results, status) {
     return;
   }
 
-  suggestionsContainer.innerHTML = results.map(s => `
+  suggestionsContainer.innerHTML = results.map(s => {
+    // Parse aliases_json if present
+    let aliasesHtml = '';
+    if (s.aliases_json) {
+      try {
+        const aliases = JSON.parse(s.aliases_json);
+        if (aliases.length) {
+          aliasesHtml = `<div style="margin-top:var(--space-xs); display:flex; gap:var(--space-xs); flex-wrap:wrap;">
+            ${aliases.map(a => `<span class="alias-pill" title="${escHtml(a.language)}">${escHtml(a.alias)}</span>`).join('')}
+          </div>`;
+        }
+      } catch { /* ignore malformed JSON */ }
+    }
+
+    return `
     <div class="sugg-card" id="sugg-${s.id}">
       <div class="sugg-card__body">
         <div class="sugg-card__names">
-          ${s.mon      ? `<div class="sugg-card__field"><span class="sugg-card__field-label">Mon</span><span class="sugg-card__field-val mon">${escHtml(s.mon)}</span></div>` : ''}
-          ${s.burmese  ? `<div class="sugg-card__field"><span class="sugg-card__field-label">Burmese</span><span class="sugg-card__field-val bur">${escHtml(s.burmese)}</span></div>` : ''}
-          ${s.english  ? `<div class="sugg-card__field"><span class="sugg-card__field-label">English</span><span class="sugg-card__field-val eng">${escHtml(s.english)}</span></div>` : ''}
+          ${s.mon     ? `<div class="sugg-card__field"><span class="sugg-card__field-label">Mon</span><span class="sugg-card__field-val mon">${escHtml(s.mon)}</span></div>` : ''}
+          ${s.burmese ? `<div class="sugg-card__field"><span class="sugg-card__field-label">Burmese</span><span class="sugg-card__field-val bur">${escHtml(s.burmese)}</span></div>` : ''}
+          ${s.english ? `<div class="sugg-card__field"><span class="sugg-card__field-label">English</span><span class="sugg-card__field-val eng">${escHtml(s.english)}</span></div>` : ''}
         </div>
-        ${s.meaning ? `<p class="text-small text-muted">Meaning: ${escHtml(s.meaning)}</p>` : ''}
+        ${aliasesHtml}
+        ${s.meaning ? `<p class="text-small text-muted" style="margin-top:var(--space-sm)">Notes / Meaning: ${escHtml(s.meaning)}</p>` : ''}
         <div style="display:flex; gap:var(--space-sm); flex-wrap:wrap; margin-top:var(--space-sm)">
           <span class="badge badge--${s.gender || 'neutral'}">${capitalize(s.gender || 'neutral')}</span>
           <span class="badge badge--${s.status}">${capitalize(s.status)}</span>
@@ -464,8 +475,8 @@ function renderSuggestions(results, status) {
           <button class="btn btn--accent btn--sm" onclick="reviewSuggestion(${s.id}, 'approved')">✓ Approve</button>
           <button class="btn btn--ghost btn--sm" onclick="promptReject(${s.id})">✗ Reject</button>
         </div>` : ''}
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function reviewSuggestion(id, status, admin_notes = null) {
@@ -475,7 +486,7 @@ async function reviewSuggestion(id, status, admin_notes = null) {
       body: JSON.stringify({ status, admin_notes }),
     });
 
-    // Animate out
+    // Animate card out
     const card = document.getElementById(`sugg-${id}`);
     if (card) {
       card.style.opacity = '0';
@@ -484,17 +495,18 @@ async function reviewSuggestion(id, status, admin_notes = null) {
       setTimeout(() => card.remove(), 300);
     }
 
+    // Refresh stats (suggestion count and, if approved, name count)
+    await loadStats();
     if (status === 'approved') {
       await loadNames(currentNamesPage);
     }
-    await loadSuggestionsBadge();
   } catch (e) {
     alert(`Failed: ${e.message}`);
   }
 }
 
 function promptReject(id) {
-  const notes = prompt('Rejection note (optional — will be stored for reference):');
+  const notes = prompt('Rejection note (optional — stored for reference):');
   if (notes === null) return; // User cancelled
   reviewSuggestion(id, 'rejected', notes || null);
 }
@@ -562,7 +574,6 @@ function formatDate(dateStr) {
 }
 
 // ── Expose functions called from inline onclick attrs ────────
-// (needed because they're defined in module scope)
 window.openEditModal    = openEditModal;
 window.deleteName       = deleteName;
 window.removeAlias      = removeAlias;

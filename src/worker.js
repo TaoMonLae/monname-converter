@@ -6,11 +6,12 @@
  *
  * Public API
  *   GET  /api/search?q=&lang=       Search names across all three languages
- *   POST /api/suggest               Submit a name suggestion for review
+ *   POST /api/suggestions           Submit a name suggestion for review
  *
- * Admin API  (requires: Authorization: Bearer <token>)
+ * Admin API  (requires: admin_session HttpOnly cookie)
  *   POST   /api/admin/login                  Authenticate with ADMIN_PASSWORD
- *   POST   /api/admin/logout                 Invalidate session token
+ *   POST   /api/admin/logout                 Invalidate session and clear cookie
+ *   GET    /api/admin/stats                  Dashboard counts (total, verified, pending)
  *   GET    /api/admin/names?page=            List all name entries (paginated)
  *   POST   /api/admin/names                  Create a new name entry
  *   PUT    /api/admin/names/:id              Update an existing name entry
@@ -34,14 +35,15 @@ const json = (data, status = 200) =>
 const err = (message, status = 400) => json({ error: message }, status);
 
 /**
- * Attach CORS headers to any Response.
- * In production you may want to restrict Allow-Origin to your domain.
+ * Attach CORS headers to any Response, preserving existing headers (e.g.
+ * Set-Cookie from login/logout). Public routes use wildcard origin; cookie
+ * auth only matters for same-origin admin requests anyway.
  */
 function withCors(response) {
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', '*');
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type');
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -68,26 +70,40 @@ function formatName(row) {
 
 /**
  * Normalize a search query: trim surrounding whitespace, collapse internal
- * runs of whitespace to a single space, and lower-case for comparison.
- * Returns an empty string when the input is blank.
+ * runs of whitespace to a single space.
  */
 function normalize(q) {
   return (q || '').replace(/\s+/g, ' ').trim();
 }
 
+/** Read a named cookie value from the request. */
+function getCookie(request, name) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  for (const part of cookieHeader.split(';')) {
+    const eqIdx = part.indexOf('=');
+    if (eqIdx === -1) continue;
+    const k = part.slice(0, eqIdx).trim();
+    if (k === name) return part.slice(eqIdx + 1).trim();
+  }
+  return null;
+}
+
+/** Build a Set-Cookie string for the admin session token. */
+function sessionCookie(token, maxAge = 86400) {
+  return `admin_session=${token}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=${maxAge}`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// ── Auth Middleware ─────────────────────────────────────────════════════════
+// ── Auth Middleware ─────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Validate the Bearer token in the Authorization header.
- * Returns null when auth is valid, or a 401 Response when invalid.
+ * Validate the admin_session cookie.
+ * Returns null when auth is valid, or a 401 Response when invalid/missing.
  */
 async function requireAdmin(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-
-  if (!token) return err('Missing authorization token', 401);
+  const token = getCookie(request, 'admin_session');
+  if (!token) return err('Not authenticated', 401);
 
   const session = await env.DB.prepare(
     `SELECT token FROM admin_sessions
@@ -105,10 +121,12 @@ async function requireAdmin(request, env) {
 /**
  * GET /api/search?q=<query>&lang=<all|mon|burmese|english>
  *
- * Searches the `names` table (mon, burmese, english columns) and the
- * `aliases` table using safe bound-parameter LIKE queries.
- * Results are ordered: verified first, then alphabetically by English name.
- * Maximum 25 results are returned.
+ * Searches names and aliases with ranked results:
+ *   1. Verified names first
+ *   2. Exact match
+ *   3. Prefix match (starts with)
+ *   4. Partial match (contains)
+ * Maximum 25 results. Safe bound parameters throughout.
  */
 async function handleSearch(request, env) {
   const url = new URL(request.url);
@@ -118,49 +136,88 @@ async function handleSearch(request, env) {
   if (!q) return json({ results: [] });
   if (q.length > 100) return err('Query too long (max 100 characters)');
 
-  const like = `%${q}%`;
+  const exact   = q;
+  const prefix  = `${q}%`;
+  const partial = `%${q}%`;
 
-  // Build WHERE clause and binding array based on optional language filter
-  let where, bindings;
+  let sql, bindings;
+
   if (lang === 'mon') {
-    where = `WHERE (
-      n.mon LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ?)
-    )`;
-    bindings = [like, like];
-  } else if (lang === 'burmese') {
-    where = `WHERE (
-      n.burmese LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ?)
-    )`;
-    bindings = [like, like];
-  } else if (lang === 'english') {
-    where = `WHERE (
-      n.english LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ?)
-    )`;
-    bindings = [like, like];
-  } else {
-    // Search all language columns and all aliases
-    where = `WHERE (
-      n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ?
-      OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.alias LIKE ?)
-    )`;
-    bindings = [like, like, like, like];
-  }
-
-  try {
-    const { results } = await env.DB.prepare(`
+    sql = `
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
         (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
-         FROM aliases a WHERE a.name_id = n.id) AS aliases
+         FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        CASE WHEN n.mon = ? THEN 0 WHEN n.mon LIKE ? THEN 1 ELSE 2 END AS match_rank
       FROM names n
-      ${where}
-      ORDER BY n.verified DESC, n.english ASC
-      LIMIT 25
-    `).bind(...bindings).all();
+      WHERE (
+        n.mon LIKE ?
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ?)
+      )
+      ORDER BY n.verified DESC, match_rank ASC, n.english ASC
+      LIMIT 25`;
+    bindings = [exact, prefix, partial, partial];
 
+  } else if (lang === 'burmese') {
+    sql = `
+      SELECT
+        n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
+        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+         FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        CASE WHEN n.burmese = ? THEN 0 WHEN n.burmese LIKE ? THEN 1 ELSE 2 END AS match_rank
+      FROM names n
+      WHERE (
+        n.burmese LIKE ?
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ?)
+      )
+      ORDER BY n.verified DESC, match_rank ASC, n.english ASC
+      LIMIT 25`;
+    bindings = [exact, prefix, partial, partial];
+
+  } else if (lang === 'english') {
+    sql = `
+      SELECT
+        n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
+        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+         FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        CASE WHEN n.english = ? THEN 0 WHEN n.english LIKE ? THEN 1 ELSE 2 END AS match_rank
+      FROM names n
+      WHERE (
+        n.english LIKE ?
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ?)
+      )
+      ORDER BY n.verified DESC, match_rank ASC, n.english ASC
+      LIMIT 25`;
+    bindings = [exact, prefix, partial, partial];
+
+  } else {
+    // All languages — rank by best match across any column
+    sql = `
+      SELECT
+        n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
+        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+         FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        CASE
+          WHEN n.mon = ? OR n.burmese = ? OR n.english = ? THEN 0
+          WHEN n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ? THEN 1
+          ELSE 2
+        END AS match_rank
+      FROM names n
+      WHERE (
+        n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ?
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.alias LIKE ?)
+      )
+      ORDER BY n.verified DESC, match_rank ASC, n.english ASC
+      LIMIT 25`;
+    bindings = [
+      exact, exact, exact,        // CASE exact checks
+      prefix, prefix, prefix,     // CASE prefix checks
+      partial, partial, partial, partial, // WHERE partial checks (mon, bur, eng, alias)
+    ];
+  }
+
+  try {
+    const { results } = await env.DB.prepare(sql).bind(...bindings).all();
     return json({ results: results.map(formatName) });
   } catch (e) {
     console.error('Search error:', e);
@@ -169,18 +226,20 @@ async function handleSearch(request, env) {
 }
 
 /**
- * POST /api/suggest
- * Body: { mon, burmese, english, meaning, gender, submitted_by }
+ * POST /api/suggestions
+ * Body: { mon, burmese, english, meaning, gender, submitted_by,
+ *         aliases: [{alias, language}] }
  *
  * At least one of mon/burmese/english must be provided.
  * Submission goes to `suggestions` with status = 'pending'.
+ * Aliases are stored as JSON in aliases_json for later promotion.
  */
 async function handleSuggest(request, env) {
   let body;
   try { body = await request.json(); }
   catch { return err('Request body must be valid JSON'); }
 
-  const { mon, burmese, english, meaning, gender, submitted_by } = body;
+  const { mon, burmese, english, meaning, gender, submitted_by, aliases } = body;
 
   if (!mon && !burmese && !english) {
     return err('At least one name field (Mon, Burmese, or English) is required');
@@ -189,13 +248,26 @@ async function handleSuggest(request, env) {
   const validGenders = ['male', 'female', 'neutral'];
   const safeGender = validGenders.includes(gender) ? gender : 'neutral';
 
+  // Validate and serialise aliases for storage
+  let aliasesJson = null;
+  if (Array.isArray(aliases) && aliases.length > 0) {
+    const validLangs = ['mon', 'burmese', 'english'];
+    const clean = aliases
+      .filter(a => a && typeof a.alias === 'string' && a.alias.trim())
+      .map(a => ({
+        alias: a.alias.trim(),
+        language: validLangs.includes(a.language) ? a.language : 'english',
+      }));
+    if (clean.length > 0) aliasesJson = JSON.stringify(clean);
+  }
+
   try {
     await env.DB.prepare(`
-      INSERT INTO suggestions (mon, burmese, english, meaning, gender, submitted_by)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO suggestions (mon, burmese, english, meaning, gender, submitted_by, aliases_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
       mon || null, burmese || null, english || null,
-      meaning || null, safeGender, submitted_by || null
+      meaning || null, safeGender, submitted_by || null, aliasesJson
     ).run();
 
     return json({ success: true, message: 'Thank you! Your suggestion has been submitted for review.' }, 201);
@@ -212,7 +284,7 @@ async function handleSuggest(request, env) {
 /**
  * POST /api/admin/login
  * Body: { password }
- * Returns: { token } — store this and send as "Authorization: Bearer <token>"
+ * On success, sets an HttpOnly admin_session cookie (24 h).
  */
 async function handleLogin(request, env) {
   let body;
@@ -220,12 +292,10 @@ async function handleLogin(request, env) {
   catch { return err('Request body must be valid JSON'); }
 
   if (!body.password || body.password !== env.ADMIN_PASSWORD) {
-    // Constant-time-ish: always check even if missing
     return err('Invalid password', 401);
   }
 
   const token = randomToken();
-  // SQLite datetime() doesn't accept JS ISO strings directly; use strftime
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
     .toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
 
@@ -233,20 +303,50 @@ async function handleLogin(request, env) {
     `INSERT INTO admin_sessions (token, expires_at) VALUES (?, ?)`
   ).bind(token, expiresAt).run();
 
-  return json({ token });
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Set-Cookie': sessionCookie(token),
+    },
+  });
 }
 
 /**
  * POST /api/admin/logout
- * Deletes the session token from D1.
+ * Deletes the session from D1 and clears the cookie.
  */
 async function handleLogout(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
+  const token = getCookie(request, 'admin_session');
   if (token) {
     await env.DB.prepare('DELETE FROM admin_sessions WHERE token = ?').bind(token).run();
   }
-  return json({ success: true });
+  return new Response(JSON.stringify({ success: true }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Set-Cookie': sessionCookie('', 0), // expire the cookie immediately
+    },
+  });
+}
+
+/**
+ * GET /api/admin/stats
+ * Returns total names, total verified names, and pending suggestion count.
+ * Used by the admin dashboard to populate stat cards accurately.
+ */
+async function handleAdminStats(request, env) {
+  const [totalRow, verifiedRow, pendingRow] = await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS count FROM names').first(),
+    env.DB.prepare('SELECT COUNT(*) AS count FROM names WHERE verified = 1').first(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM suggestions WHERE status = 'pending'").first(),
+  ]);
+
+  return json({
+    total: totalRow.count,
+    totalVerified: verifiedRow.count,
+    pendingSuggestions: pendingRow.count,
+  });
 }
 
 /**
@@ -343,7 +443,7 @@ async function handleUpdateName(request, env, id) {
     meaning || null, safeGender, verified ? 1 : 0, id
   ).run();
 
-  // Full alias replacement
+  // Full alias replacement when aliases key is present
   if (aliases !== undefined) {
     await env.DB.prepare('DELETE FROM aliases WHERE name_id = ?').bind(id).run();
     if (Array.isArray(aliases)) {
@@ -362,9 +462,11 @@ async function handleUpdateName(request, env, id) {
 
 /**
  * DELETE /api/admin/names/:id
- * Cascades to aliases via FK constraint.
+ * Explicitly removes aliases before deleting the name, as belt-and-suspenders
+ * in case the D1 instance has foreign key enforcement off.
  */
 async function handleDeleteName(request, env, id) {
+  await env.DB.prepare('DELETE FROM aliases WHERE name_id = ?').bind(id).run();
   await env.DB.prepare('DELETE FROM names WHERE id = ?').bind(id).run();
   return json({ success: true });
 }
@@ -390,7 +492,10 @@ async function handleListSuggestions(request, env) {
  * PUT /api/admin/suggestions/:id
  * Body: { status: 'approved'|'rejected'|'pending', admin_notes }
  *
- * Approving a suggestion automatically creates a verified entry in `names`.
+ * Approving a suggestion automatically:
+ *   1. Creates a verified entry in `names`
+ *   2. Promotes aliases_json into the `aliases` table
+ *   3. Marks the suggestion as approved
  */
 async function handleUpdateSuggestion(request, env, id) {
   let body;
@@ -408,14 +513,29 @@ async function handleUpdateSuggestion(request, env, id) {
     WHERE id = ?
   `).bind(status, admin_notes || null, id).run();
 
-  // Auto-promote approved suggestions into the names table
   if (status === 'approved') {
     const s = await env.DB.prepare('SELECT * FROM suggestions WHERE id = ?').bind(id).first();
     if (s) {
-      await env.DB.prepare(`
+      const result = await env.DB.prepare(`
         INSERT INTO names (mon, burmese, english, meaning, gender, verified)
         VALUES (?, ?, ?, ?, ?, 1)
       `).bind(s.mon, s.burmese, s.english, s.meaning, s.gender || 'neutral').run();
+
+      const nameId = result.meta.last_row_id;
+
+      // Promote suggestion aliases into the aliases table
+      if (s.aliases_json) {
+        let aliases;
+        try { aliases = JSON.parse(s.aliases_json); } catch { aliases = []; }
+        const validLangs = ['mon', 'burmese', 'english'];
+        for (const { alias, language } of (aliases || [])) {
+          if (alias && validLangs.includes(language)) {
+            await env.DB.prepare(
+              'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
+            ).bind(nameId, alias.trim(), language).run();
+          }
+        }
+      }
     }
   }
 
@@ -434,17 +554,20 @@ async function router(request, env) {
   if (method === 'OPTIONS') return new Response(null, { status: 204 });
 
   // ── Public routes ───────────────────────────────────────────────────────
-  if (method === 'GET'  && pathname === '/api/search')  return handleSearch(request, env);
-  if (method === 'POST' && pathname === '/api/suggest') return handleSuggest(request, env);
+  if (method === 'GET'  && pathname === '/api/search')      return handleSearch(request, env);
+  if (method === 'POST' && pathname === '/api/suggestions') return handleSuggest(request, env);
 
-  // ── Admin auth (no token required) ─────────────────────────────────────
+  // ── Admin auth (no session required) ────────────────────────────────────
   if (method === 'POST' && pathname === '/api/admin/login')  return handleLogin(request, env);
   if (method === 'POST' && pathname === '/api/admin/logout') return handleLogout(request, env);
 
-  // ── Protected admin routes ──────────────────────────────────────────────
+  // ── Protected admin routes ───────────────────────────────────────────────
   if (pathname.startsWith('/api/admin/')) {
     const authErr = await requireAdmin(request, env);
     if (authErr) return authErr;
+
+    // Stats
+    if (method === 'GET' && pathname === '/api/admin/stats') return handleAdminStats(request, env);
 
     // Names collection
     if (method === 'GET'  && pathname === '/api/admin/names') return handleListNames(request, env);
@@ -471,10 +594,10 @@ async function router(request, env) {
     return err('Admin route not found', 404);
   }
 
-  // ── Unknown /api/* ──────────────────────────────────────────────────────
+  // ── Unknown /api/* ───────────────────────────────────────────────────────
   if (pathname.startsWith('/api/')) return err('Not found', 404);
 
-  // ── Static assets ───────────────────────────────────────────────────────
+  // ── Static assets ────────────────────────────────────────────────────────
   if (env.ASSETS) return env.ASSETS.fetch(request);
   return new Response('Not found', { status: 404 });
 }
