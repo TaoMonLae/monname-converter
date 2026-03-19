@@ -218,12 +218,17 @@ function clearSuggestForm() {
 function autoFillSuggest(query) {
   if (!query) return;
   const script = detectScript(query);
-  if (script === 'burmese' || script === 'mon') {
-    // Both scripts use the same Unicode block; put in Burmese field as a starting point
-    document.getElementById('sug-burmese').value = query;
-  } else {
+  if (script === 'mon') {
+    // Mon Extended-A characters — unambiguously Mon script
+    document.getElementById('sug-mon').value = query;
+  } else if (script === 'burmese') {
+    // Myanmar Unicode block shared by Mon and Burmese; default to Mon field
+    // because this is a Mon names tool and the user is likely searching Mon names.
+    document.getElementById('sug-mon').value = query;
+  } else if (script === 'english') {
     document.getElementById('sug-english').value = query;
   }
+  // script === 'unknown' → no autofill
 }
 
 openSuggestBtn.addEventListener('click', openSuggestForm);
@@ -261,10 +266,13 @@ submitSuggestBtn.addEventListener('click', async () => {
 
     if (!res.ok) throw new Error(data.error || 'Submission failed');
 
-    showSuggestAlert(data.message || 'Suggestion submitted!', 'success');
+    // Clear and hide the form first, then show the success alert.
+    // (suggestAlert now lives outside suggestForm, so hiding the form
+    //  no longer conceals the alert. clearSuggestForm hides stale alerts.)
     clearSuggestForm();
     suggestForm.style.display = 'none';
     suggestToggle.style.display = 'block';
+    showSuggestAlert(data.message || 'Suggestion submitted!', 'success');
   } catch (e) {
     showSuggestAlert(e.message || 'Something went wrong. Please try again.', 'danger');
   } finally {
@@ -305,13 +313,14 @@ function capitalize(str) {
 /**
  * Detect the script of a query string.
  * Returns 'mon'|'burmese'|'english'|'unknown'.
- * Note: Mon and Burmese share the Myanmar Unicode block; this is a heuristic.
+ * Note: Mon and Burmese share the Myanmar Unicode block (U+1000–U+109F).
+ * We check Mon Extended-A (U+AA60–U+AA7F) first as those are Mon-specific.
  */
 function detectScript(text) {
-  // Myanmar/Mon/Burmese: U+1000–U+109F
-  if (/[\u1000-\u109F]/.test(text)) return 'burmese';
-  // Mon-Burmese extended: U+AA60–U+AA7F
+  // Mon Extended-A: U+AA60–U+AA7F (characters unique to Mon script)
   if (/[\uAA60-\uAA7F]/.test(text)) return 'mon';
+  // Myanmar block: U+1000–U+109F (shared by Mon and Burmese)
+  if (/[\u1000-\u109F]/.test(text)) return 'burmese';
   // ASCII letters → English
   if (/[a-zA-Z]/.test(text)) return 'english';
   return 'unknown';

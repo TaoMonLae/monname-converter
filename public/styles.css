@@ -588,6 +588,19 @@ td {
 .w-full      { width: 100%; }
 .truncate    { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ── Form grid (used on public suggest form + admin modal) ─── */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+@media (max-width: 540px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
+
+.form-grid .form-group--full { grid-column: 1 / -1; }
+
 /* ── Divider ─────────────────────────────────────────────────── */
 .divider {
   border: none;

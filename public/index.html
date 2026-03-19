@@ -307,18 +307,6 @@
       margin-top: var(--space-lg);
     }
 
-    .form-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--space-md);
-    }
-
-    @media (max-width: 540px) {
-      .form-grid { grid-template-columns: 1fr; }
-    }
-
-    .form-grid .form-group--full { grid-column: 1 / -1; }
-
     .suggest-form__actions {
       display: flex;
       gap: var(--space-sm);
@@ -463,13 +451,14 @@
           </div>
         </div>
 
-        <div id="suggestAlert" class="mt-md" style="display:none"></div>
-
         <div class="suggest-form__actions">
           <button class="btn btn--ghost" id="cancelSuggestBtn">Cancel</button>
           <button class="btn btn--accent" id="submitSuggestBtn">Submit suggestion →</button>
         </div>
       </div>
+
+      <!-- Alert lives outside suggestForm so it remains visible after the form is hidden -->
+      <div id="suggestAlert" class="mt-md" style="display:none"></div>
 
       <div id="suggestToggle" class="mt-lg">
         <button class="btn btn--ghost" id="openSuggestBtn">+ Submit a name</button>
