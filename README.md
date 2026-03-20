@@ -177,4 +177,4 @@ This keeps source data human-editable while preserving reproducible SQL migratio
 
 ## License
 
-Add your preferred license here (e.g., MIT) if/when this project is open sourced.
+Not open-source.
