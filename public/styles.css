@@ -3,7 +3,7 @@
    Design: Deep jungle + parchment + gold — cultural lexicon
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600&family=Noto+Sans+Mon&family=Padauk:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cormorant+Garamond:wght@500;600;700&family=Padauk:wght@400;700&display=swap');
 
 /* ── CSS Variables ─────────────────────────────────────────── */
 :root {
@@ -45,10 +45,13 @@
   --space-2xl: 64px;
 
   /* Typography */
-  --font-display: 'Playfair Display', Georgia, serif;
-  --font-body:    'DM Sans', system-ui, sans-serif;
-  --font-mon:     'Noto Sans Mon', 'Padauk', serif;
-  --font-bur:     'Padauk', 'Noto Sans Mon', serif;
+  --font-ui:      'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-heading: 'Cormorant Garamond', Georgia, serif;
+  --font-mm:      'Padauk', 'Noto Sans Myanmar', 'Myanmar Text', serif;
+  --font-display: var(--font-heading);
+  --font-body:    var(--font-ui);
+  --font-mon:     var(--font-mm);
+  --font-bur:     var(--font-mm);
 
   /* Radius */
   --radius-sm: 6px;
@@ -198,7 +201,7 @@
   border-radius: var(--radius-sm);
   color: rgba(255, 255, 255, 0.75);
   font-size: 0.8rem;
-  font-family: var(--font-body);
+  font-family: var(--font-ui);
   font-weight: 500;
   line-height: 1;
   transition: all var(--duration) var(--ease);
@@ -234,7 +237,7 @@
 html { scroll-behavior: smooth; font-size: 16px; }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-ui);
   background-color: var(--bg);
   color: var(--text);
   line-height: 1.6;
@@ -256,7 +259,7 @@ body::before {
 
 /* ── Typography ────────────────────────────────────────────── */
 h1, h2, h3, h4 {
-  font-family: var(--font-display);
+  font-family: var(--font-heading);
   color: var(--primary);
   line-height: 1.25;
 }
@@ -268,9 +271,9 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 a { color: var(--primary-light); text-decoration: none; }
 a:hover { color: var(--primary); text-decoration: underline; }
 
-.mon  { font-family: var(--font-mon);  font-size: 1.05em; }
-.bur  { font-family: var(--font-bur);  font-size: 1.05em; }
-.eng  { font-family: var(--font-display); font-style: italic; }
+.mon  { font-family: var(--font-mm);  font-size: 1.05em; }
+.bur  { font-family: var(--font-mm);  font-size: 1.05em; }
+.eng  { font-family: var(--font-ui); font-style: italic; }
 
 /* ── Layout ────────────────────────────────────────────────── */
 .container {
@@ -319,7 +322,7 @@ a:hover { color: var(--primary); text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-mon);
+  font-family: var(--font-mm);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--primary);
@@ -333,7 +336,7 @@ a:hover { color: var(--primary); text-decoration: underline; }
 }
 
 .site-logo__name {
-  font-family: var(--font-display);
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
 }
@@ -367,7 +370,7 @@ a:hover { color: var(--primary); text-decoration: underline; }
   gap: var(--space-xs);
   padding: 10px var(--space-md);
   border-radius: var(--radius-sm);
-  font-family: var(--font-body);
+  font-family: var(--font-ui);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -449,7 +452,7 @@ input[type="email"],
 input[type="password"],
 select,
 textarea {
-  font-family: var(--font-body);
+  font-family: var(--font-ui);
   font-size: 0.95rem;
   color: var(--text);
   background: var(--bg-card);
@@ -675,7 +678,7 @@ td {
   border: none;
   background: transparent;
   border-radius: calc(var(--radius-md) - 3px);
-  font-family: var(--font-body);
+  font-family: var(--font-ui);
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text-muted);
@@ -718,7 +721,7 @@ td {
 }
 
 .empty-state__title {
-  font-family: var(--font-display);
+  font-family: var(--font-heading);
   font-size: 1.2rem;
   color: var(--text-mid);
   margin-bottom: var(--space-sm);
