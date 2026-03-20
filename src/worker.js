@@ -167,7 +167,7 @@ async function fetchPrefixGroups(env, remainder, fromLang, toLang) {
       `SELECT ${source} AS source_text, mon, burmese, english, meaning, verified, 0 AS preferred
        FROM names
        WHERE ${source} IS NOT NULL
-         AND ? LIKE (${source} || '%')`
+         AND substr(?, 1, length(${source})) = ${source}`
     ).bind(normalizedRemainder).all(),
     env.DB.prepare(
       `SELECT a.alias AS source_text, n.mon, n.burmese, n.english, n.meaning, n.verified, 0 AS preferred
