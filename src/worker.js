@@ -36,6 +36,40 @@ function normalize(q) {
   return (q || '').replace(/\s+/g, ' ').trim();
 }
 
+function isEnglishBoundaryChar(ch) {
+  return !ch || /[\s\-_'"`.,/\\()[\]{}!?;:]/.test(ch);
+}
+
+function isEnglishWordStart(input, index) {
+  if (index <= 0) return true;
+  return isEnglishBoundaryChar(input[index - 1]);
+}
+
+function isEnglishWordEnd(input, index) {
+  if (index >= input.length) return true;
+  return isEnglishBoundaryChar(input[index]);
+}
+
+function englishMatchBonus(input, startIndex, sourceText) {
+  const endIndex = startIndex + sourceText.length;
+  const startsAtWord = isEnglishWordStart(input, startIndex);
+  const endsAtWord = isEnglishWordEnd(input, endIndex);
+  const isSingleChar = sourceText.length === 1;
+  const isTiny = sourceText.length <= 2;
+
+  let bonus = sourceText.length * 12;
+  if (startsAtWord && endsAtWord) {
+    bonus += 90;
+  } else if (startsAtWord || endsAtWord) {
+    bonus += 25;
+  }
+
+  if (sourceText.includes(' ')) bonus += 30;
+  if (isTiny) bonus -= 12;
+  if (isSingleChar) bonus -= 40;
+  return bonus;
+}
+
 function getCookie(request, name) {
   const cookieHeader = request.headers.get('Cookie') || '';
   for (const part of cookieHeader.split(';')) {
@@ -236,7 +270,18 @@ async function fetchPrefixGroups(env, remainder, fromLang, toLang) {
   return groups;
 }
 
-function compareScore(a, b) {
+function compareScore(a, b, isEnglish = false) {
+  if (isEnglish) {
+    if (a.matchedChars !== b.matchedChars) return a.matchedChars - b.matchedChars;
+    if (a.englishQuality !== b.englishQuality) return a.englishQuality - b.englishQuality;
+    if (a.verifiedSegments !== b.verifiedSegments) return a.verifiedSegments - b.verifiedSegments;
+    if (a.unmatchedChars !== b.unmatchedChars) return b.unmatchedChars - a.unmatchedChars;
+    if (a.singleCharSegments !== b.singleCharSegments) return b.singleCharSegments - a.singleCharSegments;
+    if (a.tinySegments !== b.tinySegments) return b.tinySegments - a.tinySegments;
+    if (a.matchedSegments !== b.matchedSegments) return b.matchedSegments - a.matchedSegments;
+    return b.totalSegments - a.totalSegments;
+  }
+
   if (a.matchedChars !== b.matchedChars) return a.matchedChars - b.matchedChars;
   if (a.matchedSegments !== b.matchedSegments) return a.matchedSegments - b.matchedSegments;
   if (a.verifiedSegments !== b.verifiedSegments) return a.verifiedSegments - b.verifiedSegments;
@@ -245,10 +290,21 @@ function compareScore(a, b) {
 
 async function findBestSegmentation(env, input, fromLang, toLang) {
   const cache = new Map();
+  const isEnglish = fromLang === 'english';
+  const emptyScore = {
+    matchedChars: 0,
+    matchedSegments: 0,
+    verifiedSegments: 0,
+    totalSegments: 0,
+    englishQuality: 0,
+    unmatchedChars: 0,
+    singleCharSegments: 0,
+    tinySegments: 0,
+  };
 
   async function solve(position) {
     if (position >= input.length) {
-      return { segments: [], score: { matchedChars: 0, matchedSegments: 0, verifiedSegments: 0, totalSegments: 0 } };
+      return { segments: [], score: { ...emptyScore } };
     }
 
     if (cache.has(position)) return cache.get(position);
@@ -258,7 +314,7 @@ async function findBestSegmentation(env, input, fromLang, toLang) {
 
     const separatorBefore = input.slice(position, scanPos);
     if (scanPos >= input.length) {
-      const terminal = { segments: [], score: { matchedChars: 0, matchedSegments: 0, verifiedSegments: 0, totalSegments: 0 } };
+      const terminal = { segments: [], score: { ...emptyScore } };
       cache.set(position, terminal);
       return terminal;
     }
@@ -293,10 +349,14 @@ async function findBestSegmentation(env, input, fromLang, toLang) {
           matchedSegments: next.score.matchedSegments + 1,
           verifiedSegments: next.score.verifiedSegments + verifiedInGroup,
           totalSegments: next.score.totalSegments + 1,
+          englishQuality: next.score.englishQuality + (isEnglish ? englishMatchBonus(input, scanPos, sourceText) : 0),
+          unmatchedChars: next.score.unmatchedChars,
+          singleCharSegments: next.score.singleCharSegments + (isEnglish && sourceText.length === 1 ? 1 : 0),
+          tinySegments: next.score.tinySegments + (isEnglish && sourceText.length <= 2 ? 1 : 0),
         },
       };
 
-      if (!best || compareScore(candidate.score, best.score) > 0) {
+      if (!best || compareScore(candidate.score, best.score, isEnglish) > 0) {
         best = candidate;
       }
     }
@@ -319,6 +379,10 @@ async function findBestSegmentation(env, input, fromLang, toLang) {
             matchedSegments: next.score.matchedSegments,
             verifiedSegments: next.score.verifiedSegments,
             totalSegments: next.score.totalSegments + 1,
+            englishQuality: next.score.englishQuality + (isEnglish ? -80 : 0),
+            unmatchedChars: next.score.unmatchedChars + (isEnglish ? 1 : 0),
+            singleCharSegments: next.score.singleCharSegments + (isEnglish ? 1 : 0),
+            tinySegments: next.score.tinySegments + (isEnglish ? 1 : 0),
           },
         };
       }
