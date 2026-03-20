@@ -173,6 +173,7 @@ async function convert() {
       word,
       matches: results[i],
       selectedIndex: 0,
+      groupIndex: i,
     }));
 
     // For any word that wasn't found, try to segment it into known sub-words
@@ -181,6 +182,8 @@ async function convert() {
       if (wr.matches.length === 0) {
         const segments = await segmentUnknownWord(wr.word);
         if (segments) {
+          // Assign parent's groupIndex so segments concatenate without spaces
+          segments.forEach(s => { s.groupIndex = wr.groupIndex; });
           expandedResults.push(...segments);
         } else {
           expandedResults.push(wr);
@@ -193,6 +196,14 @@ async function convert() {
 
     renderWordTokens();
     renderResult();
+
+    // Only show word breakdown section when disambiguation is needed
+    const needsDisambiguation = wordResults.some(wr => wr.matches.length > 1);
+    if (needsDisambiguation) {
+      wordTokensSection.classList.remove('hidden');
+    } else {
+      wordTokensSection.classList.add('hidden');
+    }
 
     const hasResult = wordResults.some(wr => wr.matches.length > 0);
     if (hasResult) {
@@ -286,17 +297,36 @@ async function segmentUnknownWord(word, depth = 0) {
 // ═══════════════════════════════════════════════════════════
 
 function getResultText() {
-  return wordResults.map(wr => {
-    if (wr.matches.length === 0) return wr.word;
-    const match = wr.matches[wr.selectedIndex] || wr.matches[0];
-    return match[toLang] || match[fromLang] || wr.word;
-  }).join(' ');
+  // Group segments by their original word (groupIndex).
+  // Segments from the same input word are joined without space;
+  // results from different input words are separated by a space.
+  const groups = new Map();
+  wordResults.forEach(wr => {
+    const gi = wr.groupIndex ?? 0;
+    if (!groups.has(gi)) groups.set(gi, []);
+    groups.get(gi).push(wr);
+  });
+
+  return [...groups.values()].map(group =>
+    group.map(wr => {
+      if (wr.matches.length === 0) return wr.word;
+      const match = wr.matches[wr.selectedIndex] || wr.matches[0];
+      return match[toLang] || match[fromLang] || wr.word;
+    }).join('')
+  ).join(' ');
 }
 
 function renderResult() {
   const text = getResultText();
   resultTextEl.className = `result-text ${langClass(toLang)}`;
   resultTextEl.textContent = text;
+
+  const scriptLabel = toLang === 'burmese' ? 'ဗမာ' : toLang === 'mon' ? 'မန်' : '';
+  const resultLabel = resultSection.querySelector('.input-label');
+  if (resultLabel) {
+    resultLabel.textContent = `Result in ${LANG_LABELS[toLang]}${scriptLabel ? ` (${scriptLabel})` : ''}`;
+  }
+
   resultSection.classList.remove('hidden');
 }
 
