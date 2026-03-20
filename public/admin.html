@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Panel — Mon Names Converter</title>
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    (function() {
+      var t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
     /* ── Admin-specific layout ────────────────────────────── */
     .admin-layout {
@@ -315,7 +321,9 @@
       <button class="btn btn--ghost btn--sm" id="logoutBtn" style="color:rgba(255,255,255,0.7); border-color:rgba(255,255,255,0.3)">
         Log out
       </button>
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark/light mode">🌙 Dark</button>
     </nav>
+    <button class="theme-toggle" id="themeToggleLogin" title="Toggle dark/light mode" style="display:flex">🌙 Dark</button>
   </div>
 </header>
 

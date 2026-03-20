@@ -602,5 +602,34 @@ window.reviewSuggestion = reviewSuggestion;
 window.promptReject     = promptReject;
 window.loadNames        = loadNames;
 
+// ── Night mode toggle ─────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+
+  function applyToBtn(btn, theme) {
+    if (!btn) return;
+    btn.textContent = theme === 'dark' ? '☀ Light' : '🌙 Dark';
+    btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+
+  const btns = [
+    document.getElementById('themeToggle'),
+    document.getElementById('themeToggleLogin'),
+  ];
+  btns.forEach(b => applyToBtn(b, saved));
+
+  btns.forEach(btn => {
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      btns.forEach(b => applyToBtn(b, next));
+    });
+  });
+})();
+
 // ── Start ─────────────────────────────────────────────────────
 init();
