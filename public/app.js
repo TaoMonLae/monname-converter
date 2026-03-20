@@ -155,11 +155,9 @@ async function convert() {
   const input = nameInput.value.trim();
   if (!input) return;
 
-  const words = input.split(/\s+/).filter(Boolean);
-
   convertBtn.disabled = true;
   convertBtn.textContent = 'Converting…';
-  setStatus('Looking up words…');
+  setStatus('Looking up…');
 
   wordTokensSection.classList.remove('hidden');
   wordTokensDiv.innerHTML = '<div class="spinner"></div>';
@@ -167,43 +165,27 @@ async function convert() {
   downloadCardBtn.classList.add('hidden');
 
   try {
-    const results = await Promise.all(words.map(w => searchWord(w)));
+    // Step 1: Try exact full-input lookup first
+    const exactMatches = await searchWord(input);
+    const hasFullExact = exactMatches.some(r => r[fromLang] && r[fromLang].trim() === input);
 
-    const rawWordResults = words.map((word, i) => ({
-      word,
-      matches: results[i],
-      selectedIndex: 0,
-      groupIndex: i,
-    }));
-
-    // For any word that wasn't found, try to segment it into known sub-words
-    const expandedResults = [];
-    for (const wr of rawWordResults) {
-      if (wr.matches.length === 0) {
-        const segments = await segmentUnknownWord(wr.word);
-        if (segments) {
-          // Assign parent's groupIndex so segments concatenate without spaces
-          segments.forEach(s => { s.groupIndex = wr.groupIndex; });
-          expandedResults.push(...segments);
-        } else {
-          expandedResults.push(wr);
-        }
-      } else {
-        expandedResults.push(wr);
-      }
+    if (hasFullExact) {
+      wordResults = [{ word: input, matches: exactMatches, selectedIndex: 0, groupIndex: 0 }];
+    } else {
+      // Step 2: Dictionary-based segmentation on the full input string
+      // (does not rely on whitespace splitting — finds word boundaries via the dictionary)
+      const segments = await segmentInput(input);
+      wordResults = (segments && segments.length > 0)
+        ? segments
+        : [{ word: input, matches: [], selectedIndex: 0, groupIndex: 0 }];
     }
-    wordResults = expandedResults;
 
     renderWordTokens();
     renderResult();
 
-    // Only show word breakdown section when disambiguation is needed
-    const needsDisambiguation = wordResults.some(wr => wr.matches.length > 1);
-    if (needsDisambiguation) {
-      wordTokensSection.classList.remove('hidden');
-    } else {
-      wordTokensSection.classList.add('hidden');
-    }
+    // Show breakdown section when there are multiple segments or any segment has multiple variants
+    const needsBreakdown = wordResults.length > 1 || wordResults.some(wr => wr.matches.length > 1);
+    wordTokensSection.classList.toggle('hidden', !needsBreakdown);
 
     const hasResult = wordResults.some(wr => wr.matches.length > 0);
     if (hasResult) {
@@ -242,54 +224,80 @@ async function searchWord(word) {
 }
 
 /**
- * Try to segment an unknown compound word into known sub-words.
- * Uses a greedy prefix search: find the longest database entry that is a
- * prefix of the input, then recursively segment the remainder.
- * Returns an array of wordResult-shaped objects, or null if no split found.
+ * Greedy longest-match-first segmentation on an arbitrary input string.
+ *
+ * Does NOT rely on whitespace splitting. It searches the dictionary for the
+ * longest entry that is a prefix of the remaining input, then recursively
+ * segments the rest. Leading whitespace in the remaining input signals a
+ * new group boundary (segments will be joined with a space in the result).
+ *
+ * When a prefix is matched, ALL dictionary entries with that exact source-
+ * language value are collected as variant matches, so the user can choose
+ * among them in the UI.
+ *
+ * Returns an array of wordResult-shaped objects, or null if no complete
+ * segmentation is possible from this position.
+ *
+ * @param {string} input     - Remaining input to segment (may have leading whitespace)
+ * @param {number} depth     - Recursion depth guard (max 10)
+ * @param {number} groupIdx  - Current group index for output concatenation
  */
-async function segmentUnknownWord(word, depth = 0) {
-  if (depth > 4 || word.length === 0) return null;
+async function segmentInput(input, depth = 0, groupIdx = 0) {
+  if (depth > 10) return null;
 
+  // Skip leading whitespace; a space signals a new group (output joined with space)
+  const trimmed = input.replace(/^\s+/, '');
+  if (!trimmed) return []; // consumed all input successfully
+
+  const hasLeadingSpace = input.length !== trimmed.length;
+  const myGroupIdx = hasLeadingSpace ? groupIdx + 1 : groupIdx;
+
+  let results = [];
   try {
-    const params = new URLSearchParams({ q: word, lang: fromLang });
+    const params = new URLSearchParams({ q: trimmed, lang: fromLang });
     const res = await fetch(`${API_BASE}/search?${params}`);
     if (!res.ok) return null;
-    const { results } = await res.json();
-
-    // Find results whose source-language value is a strict prefix of `word`
-    // (not the whole word — that would have been caught by searchWord already)
-    const prefixCandidates = results
-      .filter(r => {
-        const val = r[fromLang];
-        return val && val.length < word.length && word.startsWith(val);
-      })
-      // Prefer longer (more specific) prefixes first
-      .sort((a, b) => b[fromLang].length - a[fromLang].length);
-
-    for (const r of prefixCandidates) {
-      const val = r[fromLang];
-      const remainder = word.slice(val.length);
-
-      // Try to find the remainder as a direct match
-      const remainderMatches = await searchWord(remainder);
-      if (remainderMatches.length > 0) {
-        return [
-          { word: val, matches: [r], selectedIndex: 0 },
-          { word: remainder, matches: remainderMatches, selectedIndex: 0 },
-        ];
-      }
-
-      // Recurse: try to further segment the remainder
-      const subSegments = await segmentUnknownWord(remainder, depth + 1);
-      if (subSegments) {
-        return [{ word: val, matches: [r], selectedIndex: 0 }, ...subSegments];
-      }
-    }
+    ({ results } = await res.json());
   } catch (e) {
-    // Segmentation is best-effort; fall back to "not found"
+    return null;
   }
 
-  return null;
+  // Collect candidates whose source-language value is a prefix of `trimmed`,
+  // then sort longest-first so we always try the most specific match first.
+  const prefixCandidates = results
+    .filter(r => {
+      const val = r[fromLang];
+      return val && trimmed.startsWith(val.trim());
+    })
+    .sort((a, b) => b[fromLang].trim().length - a[fromLang].trim().length);
+
+  for (const candidate of prefixCandidates) {
+    const val = candidate[fromLang].trim();
+    const remainder = trimmed.slice(val.length);
+
+    // Fetch all dictionary entries that exactly match this segment value,
+    // so the user can pick among multiple valid target-language forms.
+    const allMatches = await searchWord(val);
+    const matches = allMatches.length ? allMatches : [candidate];
+
+    if (!remainder) {
+      // This prefix covers the entire remaining input — done.
+      return [{ word: val, matches, selectedIndex: 0, groupIndex: myGroupIdx }];
+    }
+
+    // Try to segment what's left; only accept this candidate if the rest
+    // can also be fully segmented (greedy but complete).
+    const restSegments = await segmentInput(remainder, depth + 1, myGroupIdx);
+    if (restSegments !== null) {
+      return [
+        { word: val, matches, selectedIndex: 0, groupIndex: myGroupIdx },
+        ...restSegments,
+      ];
+    }
+    // This candidate leaves an unsegmentable tail; try the next-longest prefix.
+  }
+
+  return null; // no complete segmentation found from this position
 }
 
 // ═══════════════════════════════════════════════════════════
