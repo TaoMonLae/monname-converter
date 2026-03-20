@@ -169,11 +169,27 @@ async function convert() {
   try {
     const results = await Promise.all(words.map(w => searchWord(w)));
 
-    wordResults = words.map((word, i) => ({
+    const rawWordResults = words.map((word, i) => ({
       word,
       matches: results[i],
       selectedIndex: 0,
     }));
+
+    // For any word that wasn't found, try to segment it into known sub-words
+    const expandedResults = [];
+    for (const wr of rawWordResults) {
+      if (wr.matches.length === 0) {
+        const segments = await segmentUnknownWord(wr.word);
+        if (segments) {
+          expandedResults.push(...segments);
+        } else {
+          expandedResults.push(wr);
+        }
+      } else {
+        expandedResults.push(wr);
+      }
+    }
+    wordResults = expandedResults;
 
     renderWordTokens();
     renderResult();
@@ -212,6 +228,57 @@ async function searchWord(word) {
   } catch (e) {
     return [];
   }
+}
+
+/**
+ * Try to segment an unknown compound word into known sub-words.
+ * Uses a greedy prefix search: find the longest database entry that is a
+ * prefix of the input, then recursively segment the remainder.
+ * Returns an array of wordResult-shaped objects, or null if no split found.
+ */
+async function segmentUnknownWord(word, depth = 0) {
+  if (depth > 4 || word.length === 0) return null;
+
+  try {
+    const params = new URLSearchParams({ q: word, lang: fromLang });
+    const res = await fetch(`${API_BASE}/search?${params}`);
+    if (!res.ok) return null;
+    const { results } = await res.json();
+
+    // Find results whose source-language value is a strict prefix of `word`
+    // (not the whole word — that would have been caught by searchWord already)
+    const prefixCandidates = results
+      .filter(r => {
+        const val = r[fromLang];
+        return val && val.length < word.length && word.startsWith(val);
+      })
+      // Prefer longer (more specific) prefixes first
+      .sort((a, b) => b[fromLang].length - a[fromLang].length);
+
+    for (const r of prefixCandidates) {
+      const val = r[fromLang];
+      const remainder = word.slice(val.length);
+
+      // Try to find the remainder as a direct match
+      const remainderMatches = await searchWord(remainder);
+      if (remainderMatches.length > 0) {
+        return [
+          { word: val, matches: [r], selectedIndex: 0 },
+          { word: remainder, matches: remainderMatches, selectedIndex: 0 },
+        ];
+      }
+
+      // Recurse: try to further segment the remainder
+      const subSegments = await segmentUnknownWord(remainder, depth + 1);
+      if (subSegments) {
+        return [{ word: val, matches: [r], selectedIndex: 0 }, ...subSegments];
+      }
+    }
+  } catch (e) {
+    // Segmentation is best-effort; fall back to "not found"
+  }
+
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════
