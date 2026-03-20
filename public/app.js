@@ -320,7 +320,12 @@ function renderToken(wr, i) {
 
 function openDownloadCard() {
   const input  = inputsByLang[fromLang]?.value.trim() || '';
-  const result = columnResults.mon || columnResults.burmese || columnResults.english || '';
+  const targetLangs = LANGS.filter(lang => lang !== fromLang);
+  const targetLabel = targetLangs.map(lang => LANG_LABELS[lang]).join(' / ');
+  const result = targetLangs
+    .map(lang => columnResults[lang] || '')
+    .filter(Boolean)
+    .join(' • ');
 
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop open';
@@ -346,7 +351,7 @@ function openDownloadCard() {
           <div class="name-card-preview__lang">${escHtml(LANG_LABELS[fromLang])}</div>
           <div class="name-card-preview__name ${langClass(fromLang)}">${escHtml(input)}</div>
           <div class="name-card-preview__arrow">↓</div>
-          <div class="name-card-preview__lang">Mon / Burmese / English</div>
+          <div class="name-card-preview__lang">${escHtml(targetLabel)}</div>
           <div class="name-card-preview__name name-card-preview__accent">${escHtml(result)}</div>
         </div>
         <p class="name-card-hint">The card will be saved as a PNG image.</p>
@@ -366,12 +371,13 @@ function openDownloadCard() {
   const removeBgImageBtn = modal.querySelector('#_removeCardBgImage');
   let customBgImage    = '';
   let customBgImageObj = null;
+  let bgImageLoadingPromise = Promise.resolve();
 
   function updateCardPreview() {
     preview.style.backgroundColor  = bgColorInput.value;
     preview.style.backgroundImage  = customBgImage
       ? `linear-gradient(rgba(15, 23, 42, 0.28), rgba(15, 23, 42, 0.35)), url('${customBgImage}')`
-      : '';
+      : 'none';
   }
 
   bgColorInput.addEventListener('input', updateCardPreview);
@@ -381,9 +387,18 @@ function openDownloadCard() {
     const reader = new FileReader();
     reader.onload = () => {
       customBgImage = reader.result || '';
-      const img = new Image();
-      img.onload = () => { customBgImageObj = img; };
-      img.src = customBgImage;
+      bgImageLoadingPromise = new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          customBgImageObj = img;
+          resolve();
+        };
+        img.onerror = () => {
+          customBgImageObj = null;
+          resolve();
+        };
+        img.src = customBgImage;
+      });
       updateCardPreview();
     };
     reader.readAsDataURL(file);
@@ -392,6 +407,7 @@ function openDownloadCard() {
   removeBgImageBtn.addEventListener('click', () => {
     customBgImage    = '';
     customBgImageObj = null;
+    bgImageLoadingPromise = Promise.resolve();
     bgImageInput.value = '';
     updateCardPreview();
   });
@@ -400,7 +416,8 @@ function openDownloadCard() {
   modal.querySelector('.modal__close').onclick = () => modal.remove();
   modal.querySelector('#_closeCardBtn').onclick  = () => modal.remove();
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-  modal.querySelector('#_saveCardBtn').onclick   = () => {
+  modal.querySelector('#_saveCardBtn').onclick   = async () => {
+    await bgImageLoadingPromise;
     saveCardAsImage(preview, bgColorInput.value, customBgImageObj, modal);
   };
 }
