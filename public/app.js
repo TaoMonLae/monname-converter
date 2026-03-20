@@ -7,24 +7,26 @@ let fromLang = 'burmese';
 let toLang = 'mon';
 let wordResults = [];
 let conversionMode = '';
+let columnResults = { mon: '', burmese: '', english: '' };
 let history = [];
 
 try { history = JSON.parse(localStorage.getItem('converter-history') || '[]'); }
 catch (e) { history = []; }
 
-const fromLangSelect = document.getElementById('fromLang');
-const toLangSelect = document.getElementById('toLang');
-const swapBtn = document.getElementById('swapBtn');
 const nameInput = document.getElementById('nameInput');
 const clearBtn = document.getElementById('clearBtn');
 const convertBtn = document.getElementById('convertBtn');
 const wordTokensSection = document.getElementById('wordTokensSection');
 const wordTokensDiv = document.getElementById('wordTokens');
 const resultSection = document.getElementById('resultSection');
-const resultTextEl = document.getElementById('resultText');
-const nameVariantSection = document.getElementById('nameVariantSection');
-const nameVariantList = document.getElementById('nameVariantList');
-const copyBtn = document.getElementById('copyBtn');
+const resultMonEl = document.getElementById('resultMon');
+const resultBurmeseEl = document.getElementById('resultBurmese');
+const resultEnglishEl = document.getElementById('resultEnglish');
+const nameVariantSection = null;
+const nameVariantList = null;
+const copyMonBtn = document.getElementById('copyMonBtn');
+const copyBurmeseBtn = document.getElementById('copyBurmeseBtn');
+const copyEnglishBtn = document.getElementById('copyEnglishBtn');
 const downloadCardBtn = document.getElementById('downloadCardBtn');
 const suggestWordBtn = document.getElementById('suggestWordBtn');
 const historyList = document.getElementById('historyList');
@@ -36,33 +38,8 @@ const cancelSuggestBtn = document.getElementById('cancelSuggestBtn');
 const submitSuggestBtn = document.getElementById('submitSuggestBtn');
 const suggestAlert = document.getElementById('suggestAlert');
 
-fromLangSelect.value = fromLang;
-toLangSelect.value = toLang;
 renderHistory();
 setTimeout(() => { converterStatus.textContent = ''; }, 400);
-
-fromLangSelect.addEventListener('change', () => {
-  fromLang = fromLangSelect.value;
-  if (fromLang === toLang) {
-    toLang = LANGS.find(l => l !== fromLang);
-    toLangSelect.value = toLang;
-  }
-});
-
-toLangSelect.addEventListener('change', () => {
-  toLang = toLangSelect.value;
-  if (toLang === fromLang) {
-    fromLang = LANGS.find(l => l !== toLang);
-    fromLangSelect.value = fromLang;
-  }
-});
-
-swapBtn.addEventListener('click', () => {
-  [fromLang, toLang] = [toLang, fromLang];
-  fromLangSelect.value = fromLang;
-  toLangSelect.value = toLang;
-  if (wordResults.length > 0) convert();
-});
 
 nameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); convert(); }
@@ -71,24 +48,9 @@ nameInput.addEventListener('keydown', e => {
 clearBtn.addEventListener('click', clearAll);
 convertBtn.addEventListener('click', convert);
 
-copyBtn.addEventListener('click', () => {
-  const text = getResultText();
-  if (!text) return;
-  (navigator.clipboard
-    ? navigator.clipboard.writeText(text)
-    : Promise.reject()
-  ).catch(() => {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  }).then(() => {
-    copyBtn.textContent = 'Copied!';
-    setTimeout(() => { copyBtn.textContent = '⎘'; }, 1500);
-  }).catch(() => {});
-});
+copyMonBtn?.addEventListener('click', () => copyColumn('mon', copyMonBtn));
+copyBurmeseBtn?.addEventListener('click', () => copyColumn('burmese', copyBurmeseBtn));
+copyEnglishBtn?.addEventListener('click', () => copyColumn('english', copyEnglishBtn));
 
 downloadCardBtn.addEventListener('click', openDownloadCard);
 
@@ -143,56 +105,38 @@ async function convert() {
   wordTokensSection.classList.remove('hidden');
   wordTokensDiv.innerHTML = '<div class="spinner"></div>';
   resultSection.classList.add('hidden');
-  if (nameVariantSection) nameVariantSection.classList.add('hidden');
   downloadCardBtn.classList.add('hidden');
 
   try {
-    const params = new URLSearchParams({ q: input, from: fromLang, to: toLang });
-    const res = await fetch(`${API_BASE}/convert?${params}`);
-    const data = await res.json();
+    const detected = await detectBestSource(input);
+    fromLang = detected.fromLang;
+    const conversions = await Promise.all(
+      LANGS.filter(lang => lang !== fromLang).map(async targetLang => {
+        const data = await fetchConversion(input, fromLang, targetLang);
+        return { targetLang, data };
+      })
+    );
 
-    if (!res.ok) throw new Error(data.error || 'Conversion failed');
+    const conversionByTarget = {};
+    conversions.forEach(row => { conversionByTarget[row.targetLang] = row.data; });
+    wordResults = detected.data.segments || [];
+    conversionMode = detected.data.mode || '';
 
-    wordResults = Array.isArray(data.segments) ? data.segments : [];
-    conversionMode = data.mode || '';
-    if (wordResults.length === 0) {
-      wordResults = [{
-        source: input,
-        separatorBefore: '',
-        fromLang,
-        toLang,
-        matched: false,
-        options: [{ [fromLang]: input, [toLang]: input, verified: false, preferred: true }],
-        selectedIndex: 0,
-      }];
-    }
+    columnResults = {
+      mon: fromLang === 'mon' ? input : (conversionByTarget.mon?.assembled || input),
+      burmese: fromLang === 'burmese' ? input : (conversionByTarget.burmese?.assembled || input),
+      english: fromLang === 'english' ? input : (conversionByTarget.english?.assembled || input),
+    };
 
-    const hasSingleNameVariants = wordResults.length === 1
-      && wordResults[0].matched
-      && Array.isArray(wordResults[0].options)
-      && wordResults[0].options.length > 1
-      && (conversionMode === 'exact_name' || conversionMode === 'alias_name');
-
-    const needsBreakdown = !hasSingleNameVariants
-      && (wordResults.length > 1 || wordResults.some(wr => (wr.options || []).length > 1 || !wr.matched));
-
-    if (hasSingleNameVariants) {
-      // Multiple full-name variants: show chooser first, hide result until user picks
-      wordTokensSection.classList.add('hidden');
-      wordTokensDiv.innerHTML = '';
-      renderNameVariants(/* autoSelectFirst */ false);
-      // Show result immediately with first option pre-selected (user can change)
-      renderResult();
-    } else {
-      renderWordTokens();
-      renderResult();
-      wordTokensSection.classList.toggle('hidden', !needsBreakdown);
-    }
+    const needsBreakdown = wordResults.length > 1 || wordResults.some(wr => !wr.matched || (wr.options || []).length > 1);
+    renderWordTokens();
+    renderResult();
+    wordTokensSection.classList.toggle('hidden', !needsBreakdown);
 
     downloadCardBtn.classList.remove('hidden');
-    saveHistory(input, getResultText());
+    saveHistory(input, columnResults);
     renderHistory();
-    setStatus('');
+    setStatus(`Detected source: ${LANG_LABELS[fromLang]}`);
   } catch (e) {
     wordTokensDiv.innerHTML = `<div class="alert alert--danger">${escHtml(e.message || 'Conversion failed — please try again.')}</div>`;
     wordTokensSection.classList.remove('hidden');
@@ -204,24 +148,13 @@ async function convert() {
 }
 
 function getResultText() {
-  return wordResults.map(wr => {
-    const choice = (wr.options || [])[wr.selectedIndex || 0] || (wr.options || [])[0] || null;
-    const sourceText = wr.source || '';
-    const text = choice ? (choice[toLang] || choice[fromLang] || sourceText) : sourceText;
-    return `${wr.separatorBefore || ''}${text || ''}`;
-  }).join('').trim();
+  return [columnResults.mon, columnResults.burmese, columnResults.english].filter(Boolean).join(' | ');
 }
 
 function renderResult() {
-  const text = getResultText();
-  resultTextEl.className = `result-text ${langClass(toLang)}`;
-  resultTextEl.textContent = text;
-
-  const scriptLabel = toLang === 'burmese' ? 'ဗမာ' : toLang === 'mon' ? 'မန်' : '';
-  const resultLabel = resultSection.querySelector('.input-label');
-  if (resultLabel) {
-    resultLabel.textContent = `Result in ${LANG_LABELS[toLang]}${scriptLabel ? ` (${scriptLabel})` : ''}`;
-  }
+  if (resultMonEl) resultMonEl.textContent = columnResults.mon || '';
+  if (resultBurmeseEl) resultBurmeseEl.textContent = columnResults.burmese || '';
+  if (resultEnglishEl) resultEnglishEl.textContent = columnResults.english || '';
 
   resultSection.classList.remove('hidden');
 }
@@ -344,7 +277,7 @@ function renderToken(wr, i) {
 
 function openDownloadCard() {
   const input = nameInput.value.trim();
-  const result = getResultText();
+  const result = columnResults[toLang] || columnResults.mon || '';
 
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop open';
@@ -582,8 +515,8 @@ function hideSuggestAlert() {
 }
 
 function saveHistory(input, result) {
-  const entry = { input, result, from: fromLang, to: toLang, ts: Date.now() };
-  history = [entry, ...history.filter(h => !(h.input === input && h.from === fromLang && h.to === toLang))].slice(0, 10);
+  const entry = { input, result, from: fromLang, to: 'all', ts: Date.now() };
+  history = [entry, ...history.filter(h => !(h.input === input && h.from === fromLang))].slice(0, 10);
   try { localStorage.setItem('converter-history', JSON.stringify(history)); }
   catch (e) {}
 }
@@ -599,7 +532,7 @@ function renderHistory() {
     <div class="history-item" data-hi="${i}">
       <span class="history-item__from ${langClass(h.from)}">${escHtml(h.input)}</span>
       <span class="history-item__arrow">→</span>
-      <span class="history-item__to ${langClass(h.to)}">${escHtml(h.result)}</span>
+      <span class="history-item__to">${escHtml(typeof h.result === 'string' ? h.result : ((h.result && h.result.mon) || ''))}</span>
     </div>`).join('');
 
   historyList.querySelectorAll('.history-item').forEach(item => {
@@ -608,10 +541,6 @@ function renderHistory() {
       if (!h) return;
 
       nameInput.value = h.input;
-      fromLang = h.from;
-      toLang = h.to;
-      fromLangSelect.value = fromLang;
-      toLangSelect.value = toLang;
       convert();
     });
   });
@@ -621,13 +550,59 @@ function clearAll() {
   nameInput.value = '';
   wordResults = [];
   conversionMode = '';
+  columnResults = { mon: '', burmese: '', english: '' };
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
-  if (nameVariantSection) nameVariantSection.classList.add('hidden');
-  if (nameVariantList) nameVariantList.innerHTML = '';
   resultSection.classList.add('hidden');
   downloadCardBtn.classList.add('hidden');
   setStatus('');
+}
+
+function matchScore(data) {
+  const segments = Array.isArray(data?.segments) ? data.segments : [];
+  return segments.reduce((sum, s) => sum + (s.matched ? (s.source || '').length : 0), 0);
+}
+
+async function fetchConversion(input, from, to) {
+  const params = new URLSearchParams({ q: input, from, to });
+  const res = await fetch(`${API_BASE}/convert?${params}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Conversion failed');
+  return data;
+}
+
+async function detectBestSource(input) {
+  const candidates = await Promise.all(LANGS.map(async lang => {
+    const fallbackTarget = lang === 'mon' ? 'burmese' : 'mon';
+    const data = await fetchConversion(input, lang, fallbackTarget);
+    return { fromLang: lang, data, score: matchScore(data) };
+  }));
+
+  candidates.sort((a, b) =>
+    b.score - a.score
+    || (b.data.segments?.length || 0) - (a.data.segments?.length || 0)
+  );
+  return candidates[0];
+}
+
+function copyColumn(lang, btn) {
+  const text = columnResults[lang];
+  if (!text) return;
+  (navigator.clipboard
+    ? navigator.clipboard.writeText(text)
+    : Promise.reject()
+  ).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }).then(() => {
+    const old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  }).catch(() => {});
 }
 
 function setStatus(msg) {

@@ -70,55 +70,61 @@
       min-height: 1.2em;
     }
 
-    /* ── Language selector ──────────────────────────────────── */
-    .lang-selector {
-      display: flex;
-      align-items: center;
-      gap: var(--space-sm);
+    .mode-note {
       margin-bottom: var(--space-lg);
-    }
-
-    .lang-selector select {
-      flex: 1;
-      font-weight: 500;
-      cursor: pointer;
-      background: var(--input-bg, #1e293b);
-      color: var(--text, #e2e8f0);
-      border: 1px solid var(--border, #334155);
-    }
-
-    [data-theme="light"] .lang-selector select {
-      background: var(--bg-card);
-      color: var(--text);
-      border-color: var(--border);
-    }
-
-    .swap-btn {
-      background: var(--input-bg, #1e293b);
       border: 1px solid var(--border, #334155);
       border-radius: var(--radius-sm);
-      width: 38px;
-      height: 38px;
+      padding: var(--space-sm) var(--space-md);
+      font-size: 0.9rem;
+      color: var(--text-muted, #94a3b8);
+      background: rgba(30, 41, 59, 0.35);
+    }
+
+    .result-columns {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+      margin-top: var(--space-sm);
+    }
+
+    .result-column {
+      border: 1px solid var(--border, #334155);
+      border-radius: var(--radius-sm);
+      padding: var(--space-sm);
+      background: var(--input-bg, #1e293b);
+    }
+
+    .result-column__header {
       display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-xs);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted, #94a3b8);
+      font-weight: 700;
+    }
+
+    .copy-col-btn {
+      border: 1px solid var(--border, #334155);
+      background: transparent;
+      color: inherit;
+      border-radius: 6px;
+      padding: 2px 6px;
       cursor: pointer;
-      font-size: 1.1rem;
-      color: var(--text-mid, #cbd5e1);
-      transition: all var(--duration) var(--ease);
-      flex-shrink: 0;
+      font-size: 0.72rem;
     }
 
-    .swap-btn:hover {
-      background: var(--border, #334155);
-      border-color: #22d3ee;
-      color: #67e8f9;
+    .result-column__value {
+      font-size: 1.05rem;
+      min-height: 3.2em;
+      word-break: break-word;
     }
 
-    [data-theme="light"] .swap-btn:hover {
+    [data-theme="light"] .result-column {
       background: var(--bg-warm);
-      border-color: var(--primary-light);
-      color: var(--primary);
+      border-color: var(--border);
     }
 
     /* ── Input area ─────────────────────────────────────────── */
@@ -723,20 +729,7 @@
     <h1 class="converter-title">Name Converter</h1>
     <p class="converter-status" id="converterStatus">Ready</p>
 
-    <!-- Language selectors -->
-    <div class="lang-selector">
-      <select id="fromLang" aria-label="From language">
-        <option value="burmese">Burmese</option>
-        <option value="mon">Mon</option>
-        <option value="english">English</option>
-      </select>
-      <button class="swap-btn" id="swapBtn" title="Swap languages" aria-label="Swap languages">⇄</button>
-      <select id="toLang" aria-label="To language">
-        <option value="mon">Mon</option>
-        <option value="burmese">Burmese</option>
-        <option value="english">English</option>
-      </select>
-    </div>
+    <div class="mode-note">Three-column mode: Mon • Burmese • English (auto-detect input language)</div>
 
     <!-- Name input -->
     <label class="input-label" for="nameInput">ချူစုတ်် ယၟုညိ</label>
@@ -765,14 +758,20 @@
 
     <!-- Result -->
     <div id="resultSection" class="result-section hidden">
-      <label class="input-label">Result</label>
-      <div class="result-display">
-        <div id="resultText" class="result-text"></div>
-        <button class="copy-btn" id="copyBtn" title="Copy result" aria-label="Copy result">⎘</button>
-      </div>
-      <div id="nameVariantSection" class="name-variant-section hidden">
-        <label class="input-label">Name variations (choose one)</label>
-        <div id="nameVariantList" class="name-variant-list"></div>
+      <label class="input-label">Results in all languages</label>
+      <div class="result-columns">
+        <div class="result-column">
+          <div class="result-column__header">Mon <button class="copy-col-btn" id="copyMonBtn">Copy</button></div>
+          <div id="resultMon" class="result-column__value mon"></div>
+        </div>
+        <div class="result-column">
+          <div class="result-column__header">Burmese <button class="copy-col-btn" id="copyBurmeseBtn">Copy</button></div>
+          <div id="resultBurmese" class="result-column__value bur"></div>
+        </div>
+        <div class="result-column">
+          <div class="result-column__header">English <button class="copy-col-btn" id="copyEnglishBtn">Copy</button></div>
+          <div id="resultEnglish" class="result-column__value"></div>
+        </div>
       </div>
     </div>
 
