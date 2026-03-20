@@ -403,11 +403,17 @@ async function handleSearch(request, env) {
   const lang = url.searchParams.get('lang') || 'all';
 
   if (!q) return json({ results: [] });
-  if (q.length > 100) return err('Query too long (max 100 characters)');
+  if (q.length > 300) return err('Query too long (max 300 characters)');
+
+  // Escape SQLite LIKE special characters to prevent unexpected wildcard behaviour
+  function escapeLike(s) {
+    return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  }
+  const safeQ = escapeLike(q);
 
   const exact = q;
-  const prefix = `${q}%`;
-  const partial = `%${q}%`;
+  const prefix = `${safeQ}%`;
+  const partial = `%${safeQ}%`;
 
   let sql;
   let bindings;
@@ -418,11 +424,11 @@ async function handleSearch(request, env) {
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
         (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
-        CASE WHEN n.mon = ? THEN 0 WHEN n.mon LIKE ? THEN 1 ELSE 2 END AS match_rank
+        CASE WHEN n.mon = ? THEN 0 WHEN n.mon LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
       WHERE (
-        n.mon LIKE ?
-        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ?)
+        n.mon LIKE ? ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'mon' AND a.alias LIKE ? ESCAPE '\\')
       )
       ORDER BY n.verified DESC, match_rank ASC, n.english ASC
       LIMIT 25`;
@@ -433,11 +439,11 @@ async function handleSearch(request, env) {
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
         (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
-        CASE WHEN n.burmese = ? THEN 0 WHEN n.burmese LIKE ? THEN 1 ELSE 2 END AS match_rank
+        CASE WHEN n.burmese = ? THEN 0 WHEN n.burmese LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
       WHERE (
-        n.burmese LIKE ?
-        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ?)
+        n.burmese LIKE ? ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'burmese' AND a.alias LIKE ? ESCAPE '\\')
       )
       ORDER BY n.verified DESC, match_rank ASC, n.english ASC
       LIMIT 25`;
@@ -448,11 +454,11 @@ async function handleSearch(request, env) {
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
         (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
-        CASE WHEN n.english = ? THEN 0 WHEN n.english LIKE ? THEN 1 ELSE 2 END AS match_rank
+        CASE WHEN n.english = ? THEN 0 WHEN n.english LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
       WHERE (
-        n.english LIKE ?
-        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ?)
+        n.english LIKE ? ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.language = 'english' AND a.alias LIKE ? ESCAPE '\\')
       )
       ORDER BY n.verified DESC, match_rank ASC, n.english ASC
       LIMIT 25`;
@@ -465,13 +471,13 @@ async function handleSearch(request, env) {
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
         CASE
           WHEN n.mon = ? OR n.burmese = ? OR n.english = ? THEN 0
-          WHEN n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ? THEN 1
+          WHEN n.mon LIKE ? ESCAPE '\\' OR n.burmese LIKE ? ESCAPE '\\' OR n.english LIKE ? ESCAPE '\\' THEN 1
           ELSE 2
         END AS match_rank
       FROM names n
       WHERE (
-        n.mon LIKE ? OR n.burmese LIKE ? OR n.english LIKE ?
-        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.alias LIKE ?)
+        n.mon LIKE ? ESCAPE '\\' OR n.burmese LIKE ? ESCAPE '\\' OR n.english LIKE ? ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM aliases a WHERE a.name_id = n.id AND a.alias LIKE ? ESCAPE '\\')
       )
       ORDER BY n.verified DESC, match_rank ASC, n.english ASC
       LIMIT 25`;

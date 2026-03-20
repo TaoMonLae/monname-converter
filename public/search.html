@@ -6,7 +6,80 @@
   <title>Mon Names — Search Dictionary</title>
   <meta name="description" content="Discover Mon names and their Burmese and English equivalents. Search, explore, and suggest names from the Mon heritage language." />
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    // Apply saved theme before paint to avoid flash
+    (function() {
+      var t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <style>
+    /* ── Dark mode overrides for search page ──────────────── */
+    [data-theme="dark"] .search-box {
+      background: var(--bg-card);
+      border-color: var(--border);
+    }
+
+    [data-theme="dark"] .search-box__input {
+      color: var(--text);
+    }
+
+    [data-theme="dark"] .search-box__input::placeholder {
+      color: var(--text-faint);
+    }
+
+    [data-theme="dark"] .lang-chip {
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
+    [data-theme="dark"] .lang-chip:hover {
+      border-color: var(--primary-light);
+      color: var(--text);
+    }
+
+    [data-theme="dark"] .lang-chip.active {
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    [data-theme="dark"] .name-card {
+      background: var(--bg-card);
+      border-color: var(--border);
+    }
+
+    [data-theme="dark"] .name-field {
+      border-right-color: var(--border);
+    }
+
+    [data-theme="dark"] .name-card__meaning {
+      border-top-color: var(--border);
+      color: var(--text-muted);
+    }
+
+    [data-theme="dark"] .name-field__value {
+      color: var(--text);
+    }
+
+    [data-theme="dark"] .name-field__lang {
+      color: var(--text-faint);
+    }
+
+    [data-theme="dark"] .alias-pill {
+      background: var(--bg-warm);
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
+    [data-theme="dark"] .suggest-card {
+      background: var(--bg-card);
+      border-color: var(--border);
+    }
+
+    [data-theme="dark"] .results-meta {
+      color: var(--text-muted);
+    }
+
     /* ── Page-specific styles ─────────────────────────────── */
     .hero {
       text-align: center;
@@ -288,10 +361,11 @@
         <span class="site-logo__sub">Name Converter</span>
       </div>
     </a>
-    <nav class="site-nav">
+    <nav class="site-nav" style="display:flex;align-items:center;gap:4px;">
       <a href="/">Converter</a>
       <a href="search.html" class="active">Search</a>
       <a href="admin.html">Admin</a>
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark/light mode">🌙 Dark</button>
     </nav>
   </div>
 </header>
@@ -312,7 +386,7 @@
         autocomplete="off"
         autocorrect="off"
         spellcheck="false"
-        maxlength="100"
+        maxlength="300"
       />
       <button class="search-box__btn" id="searchBtn" aria-label="Search">Search</button>
     </div>

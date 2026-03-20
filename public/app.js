@@ -143,6 +143,7 @@ async function convert() {
   wordTokensSection.classList.remove('hidden');
   wordTokensDiv.innerHTML = '<div class="spinner"></div>';
   resultSection.classList.add('hidden');
+  if (nameVariantSection) nameVariantSection.classList.add('hidden');
   downloadCardBtn.classList.add('hidden');
 
   try {
@@ -166,17 +167,27 @@ async function convert() {
       }];
     }
 
-    renderWordTokens();
-    renderResult();
-
     const hasSingleNameVariants = wordResults.length === 1
       && wordResults[0].matched
       && Array.isArray(wordResults[0].options)
       && wordResults[0].options.length > 1
       && (conversionMode === 'exact_name' || conversionMode === 'alias_name');
+
     const needsBreakdown = !hasSingleNameVariants
       && (wordResults.length > 1 || wordResults.some(wr => (wr.options || []).length > 1 || !wr.matched));
-    wordTokensSection.classList.toggle('hidden', !needsBreakdown);
+
+    if (hasSingleNameVariants) {
+      // Multiple full-name variants: show chooser first, hide result until user picks
+      wordTokensSection.classList.add('hidden');
+      wordTokensDiv.innerHTML = '';
+      renderNameVariants(/* autoSelectFirst */ false);
+      // Show result immediately with first option pre-selected (user can change)
+      renderResult();
+    } else {
+      renderWordTokens();
+      renderResult();
+      wordTokensSection.classList.toggle('hidden', !needsBreakdown);
+    }
 
     downloadCardBtn.classList.remove('hidden');
     saveHistory(input, getResultText());
@@ -184,6 +195,7 @@ async function convert() {
     setStatus('');
   } catch (e) {
     wordTokensDiv.innerHTML = `<div class="alert alert--danger">${escHtml(e.message || 'Conversion failed — please try again.')}</div>`;
+    wordTokensSection.classList.remove('hidden');
     setStatus('');
   } finally {
     convertBtn.disabled = false;
@@ -212,7 +224,6 @@ function renderResult() {
   }
 
   resultSection.classList.remove('hidden');
-  renderNameVariants();
 }
 
 function renderNameVariants() {
@@ -237,12 +248,14 @@ function renderNameVariants() {
   nameVariantList.innerHTML = wr.options.map((option, idx) => {
     const src = option[fromLang] || wr.source || '';
     const tgt = option[toLang] || wr.source || '';
+    const meaning = option.meaning ? ` — ${String(option.meaning).substring(0, 50)}` : '';
     return `<button
       type="button"
       class="name-variant-btn${idx === selectedIndex ? ' active' : ''}"
       data-variant-index="${idx}">
       <span class="name-variant-btn__target ${tgtClass}">${escHtml(tgt)}</span>
       <span class="name-variant-btn__source ${srcClass}">${escHtml(src)}</span>
+      ${meaning ? `<span class="name-variant-btn__meaning">${escHtml(meaning)}</span>` : ''}
     </button>`;
   }).join('');
 
@@ -252,6 +265,7 @@ function renderNameVariants() {
       wordResults[0].selectedIndex = idx;
       renderNameVariants();
       renderResult();
+      saveHistory(nameInput.value.trim(), getResultText());
     });
   });
 
@@ -326,6 +340,8 @@ function renderToken(wr, i) {
   </div>`;
 }
 
+// ── Download Card (Save as Image) ─────────────────────────────
+
 function openDownloadCard() {
   const input = nameInput.value.trim();
   const result = getResultText();
@@ -348,7 +364,7 @@ function openDownloadCard() {
             <span>Background image</span>
             <input type="file" id="_cardBgImage" accept="image/*" />
           </label>
-          <button type="button" class="btn btn--ghost name-card-remove-image" id="_removeCardBgImage">Remove image</button>
+          <button type="button" class="btn btn--ghost btn--sm name-card-remove-image" id="_removeCardBgImage">Remove image</button>
         </div>
         <div class="name-card-preview" id="_cardPreview">
           <div class="name-card-preview__lang">${escHtml(LANG_LABELS[fromLang])}</div>
@@ -357,10 +373,13 @@ function openDownloadCard() {
           <div class="name-card-preview__lang">${escHtml(LANG_LABELS[toLang])}</div>
           <div class="name-card-preview__name ${langClass(toLang)} name-card-preview__accent">${escHtml(result)}</div>
         </div>
+        <p class="name-card-hint">The card will be saved as a PNG image.</p>
       </div>
       <div class="modal__footer">
         <button class="btn btn--ghost" id="_closeCardBtn">Close</button>
-        <button class="btn btn--primary" id="_printCardBtn">Print / Save as PDF</button>
+        <button class="btn btn--primary" id="_saveCardBtn">
+          <span id="_saveCardBtnLabel">⬇ Save Image</span>
+        </button>
       </div>
     </div>`;
 
@@ -370,6 +389,7 @@ function openDownloadCard() {
   const bgImageInput = modal.querySelector('#_cardBgImage');
   const removeBgImageBtn = modal.querySelector('#_removeCardBgImage');
   let customBgImage = '';
+  let customBgImageObj = null;
 
   function updateCardPreview() {
     preview.style.backgroundColor = bgColorInput.value;
@@ -385,6 +405,9 @@ function openDownloadCard() {
     const reader = new FileReader();
     reader.onload = () => {
       customBgImage = reader.result || '';
+      const img = new Image();
+      img.onload = () => { customBgImageObj = img; };
+      img.src = customBgImage;
       updateCardPreview();
     };
     reader.readAsDataURL(file);
@@ -392,6 +415,7 @@ function openDownloadCard() {
 
   removeBgImageBtn.addEventListener('click', () => {
     customBgImage = '';
+    customBgImageObj = null;
     bgImageInput.value = '';
     updateCardPreview();
   });
@@ -399,8 +423,123 @@ function openDownloadCard() {
   updateCardPreview();
   modal.querySelector('.modal__close').onclick = () => modal.remove();
   modal.querySelector('#_closeCardBtn').onclick = () => modal.remove();
-  modal.querySelector('#_printCardBtn').onclick = () => window.print();
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+  modal.querySelector('#_saveCardBtn').onclick = () => {
+    saveCardAsImage(preview, bgColorInput.value, customBgImageObj, modal);
+  };
+}
+
+function saveCardAsImage(previewEl, bgColor, bgImageObj, modal) {
+  const saveBtn = modal.querySelector('#_saveCardBtn');
+  const saveBtnLabel = modal.querySelector('#_saveCardBtnLabel');
+  saveBtnLabel.textContent = 'Saving…';
+  saveBtn.disabled = true;
+
+  // Card dimensions (fixed size for consistent output)
+  const W = 600;
+  const H = 340;
+  const scale = window.devicePixelRatio || 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * scale;
+  canvas.height = H * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+
+  // Draw background
+  ctx.fillStyle = bgColor || '#1a3d2b';
+  ctx.fillRect(0, 0, W, H);
+
+  function drawContents() {
+    // Overlay gradient if bg image
+    if (bgImageObj) {
+      // Draw image cover
+      const imgAspect = bgImageObj.width / bgImageObj.height;
+      const canvasAspect = W / H;
+      let sw, sh, sx, sy;
+      if (imgAspect > canvasAspect) {
+        sh = bgImageObj.height;
+        sw = sh * canvasAspect;
+        sx = (bgImageObj.width - sw) / 2;
+        sy = 0;
+      } else {
+        sw = bgImageObj.width;
+        sh = sw / canvasAspect;
+        sx = 0;
+        sy = (bgImageObj.height - sh) / 2;
+      }
+      ctx.drawImage(bgImageObj, sx, sy, sw, sh, 0, 0, W, H);
+      // Dark overlay
+      const grd = ctx.createLinearGradient(0, 0, 0, H);
+      grd.addColorStop(0, 'rgba(15,23,42,0.28)');
+      grd.addColorStop(1, 'rgba(15,23,42,0.45)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    const cx = W / 2;
+    const fromText = previewEl.querySelector(`.name-card-preview__name:first-of-type`)?.textContent || '';
+    const fromLangLabel = previewEl.querySelectorAll('.name-card-preview__lang')[0]?.textContent || '';
+    const toText = previewEl.querySelector('.name-card-preview__accent')?.textContent || '';
+    const toLangLabel = previewEl.querySelectorAll('.name-card-preview__lang')[1]?.textContent || '';
+
+    // From lang label
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '600 11px "DM Sans", sans-serif';
+    ctx.letterSpacing = '2px';
+    ctx.fillText(fromLangLabel.toUpperCase(), cx, 72);
+
+    // From name
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = 'bold 36px "Padauk", "Noto Sans Mon", serif';
+    ctx.fillText(fromText, cx, 118);
+
+    // Arrow
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '24px sans-serif';
+    ctx.fillText('↓', cx, 160);
+
+    // To lang label
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '600 11px "DM Sans", sans-serif';
+    ctx.fillText(toLangLabel.toUpperCase(), cx, 200);
+
+    // To name (accent color)
+    ctx.fillStyle = '#e8b84b';
+    ctx.font = 'bold 40px "Padauk", "Noto Sans Mon", serif';
+    ctx.fillText(toText, cx, 254);
+
+    // Footer branding
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '500 12px "DM Sans", sans-serif';
+    ctx.fillText('Mon Names Converter', cx, H - 22);
+
+    // Save
+    try {
+      const link = document.createElement('a');
+      const filename = `mon-name-${(toText || 'card').replace(/\s+/g, '-').substring(0, 30)}.png`;
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      alert('Could not save image. Try right-clicking the preview and saving it manually.');
+    }
+
+    saveBtnLabel.textContent = '✓ Saved!';
+    setTimeout(() => {
+      saveBtnLabel.textContent = '⬇ Save Image';
+      saveBtn.disabled = false;
+    }, 2000);
+  }
+
+  // Ensure fonts are loaded before drawing
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(drawContents);
+  } else {
+    setTimeout(drawContents, 300);
+  }
 }
 
 function openSuggestModal() {
@@ -510,3 +649,26 @@ function escHtml(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+// ── Night mode toggle ─────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+
+  function updateBtn(theme) {
+    btn.textContent = theme === 'dark' ? '☀ Light' : '🌙 Dark';
+    btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  updateBtn(saved);
+
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateBtn(next);
+  });
+})();

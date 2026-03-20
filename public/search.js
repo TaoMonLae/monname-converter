@@ -244,6 +244,29 @@ function detectScript(text) {
   return 'unknown';
 }
 
+// ── Night mode toggle ─────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+
+  function updateBtn(theme) {
+    btn.textContent = theme === 'dark' ? '☀ Light' : '🌙 Dark';
+    btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+  }
+  updateBtn(saved);
+
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateBtn(next);
+  });
+})();
+
 // ── Init ─────────────────────────────────────────────────────
 searchInput.focus();
 
