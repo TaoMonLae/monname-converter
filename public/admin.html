@@ -270,14 +270,8 @@
     .login-card__icon {
       width: 56px;
       height: 56px;
-      background: var(--primary);
+      object-fit: contain;
       border-radius: var(--radius-md);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: var(--font-mon);
-      font-size: 1.6rem;
-      color: var(--accent);
       margin: 0 auto var(--space-md);
     }
 
@@ -311,11 +305,11 @@
 <!-- ── Header ──────────────────────────────────────────────── -->
 <header class="site-header">
   <div class="site-header__inner">
-    <a href="/" class="site-logo">
-      <div class="site-logo__icon">မ</div>
-      <div class="site-logo__text">
-        <span class="site-logo__name">Mon Names</span>
-        <span class="site-logo__sub">Admin Panel</span>
+    <a href="/" class="brand" aria-label="Mon Names home">
+      <img src="/logo.png" alt="Mon Names logo" class="brand-logo" />
+      <div>
+        <span class="brand-title">Mon Names</span>
+        <span class="brand-subtitle">Admin Panel</span>
       </div>
     </a>
     <nav class="site-nav" id="adminNav" style="display:none">
@@ -334,7 +328,7 @@
   <div class="login-screen">
     <div class="login-card">
       <div class="login-card__logo">
-        <div class="login-card__icon">မ</div>
+        <img src="/logo.png" alt="Mon Names logo" class="login-card__icon" />
         <h2 style="font-size:1.4rem">Admin Login</h2>
         <p class="text-muted text-small mt-sm">Mon Names Converter</p>
       </div>
