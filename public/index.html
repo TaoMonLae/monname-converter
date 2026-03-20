@@ -319,6 +319,46 @@
       color: #67e8f9;
     }
 
+    .name-variant-section {
+      margin-top: var(--space-md);
+    }
+
+    .name-variant-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .name-variant-btn {
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #cbd5e1;
+      border-radius: 999px;
+      padding: 7px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      transition: all var(--duration);
+      font-size: 0.86rem;
+    }
+
+    .name-variant-btn:hover {
+      border-color: #22d3ee;
+      color: #e2e8f0;
+    }
+
+    .name-variant-btn.active {
+      border-color: #22d3ee;
+      background: rgba(34, 211, 238, 0.15);
+      color: #67e8f9;
+    }
+
+    .name-variant-btn__source {
+      opacity: 0.75;
+      font-size: 0.77rem;
+    }
+
     /* ── Download card btn ──────────────────────────────────── */
     .download-card-btn {
       width: 100%;
@@ -419,6 +459,40 @@
       border-radius: var(--radius-md);
       padding: var(--space-xl);
       color: white;
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+    }
+
+    .name-card-controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+      align-items: end;
+    }
+
+    .name-card-control {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .name-card-control input[type="color"],
+    .name-card-control input[type="file"] {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: var(--radius-sm);
+      padding: 6px;
+      background: white;
+    }
+
+    .name-card-remove-image {
+      justify-content: center;
+      align-self: stretch;
     }
 
     .name-card-preview__lang {
@@ -524,6 +598,10 @@
       <div class="result-display">
         <div id="resultText" class="result-text"></div>
         <button class="copy-btn" id="copyBtn" title="Copy result" aria-label="Copy result">⎘</button>
+      </div>
+      <div id="nameVariantSection" class="name-variant-section hidden">
+        <label class="input-label">Name variations (choose one)</label>
+        <div id="nameVariantList" class="name-variant-list"></div>
       </div>
     </div>
 

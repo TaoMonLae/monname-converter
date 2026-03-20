@@ -6,6 +6,7 @@ const LANGS = ['burmese', 'mon', 'english'];
 let fromLang = 'burmese';
 let toLang = 'mon';
 let wordResults = [];
+let conversionMode = '';
 let history = [];
 
 try { history = JSON.parse(localStorage.getItem('converter-history') || '[]'); }
@@ -21,6 +22,8 @@ const wordTokensSection = document.getElementById('wordTokensSection');
 const wordTokensDiv = document.getElementById('wordTokens');
 const resultSection = document.getElementById('resultSection');
 const resultTextEl = document.getElementById('resultText');
+const nameVariantSection = document.getElementById('nameVariantSection');
+const nameVariantList = document.getElementById('nameVariantList');
 const copyBtn = document.getElementById('copyBtn');
 const downloadCardBtn = document.getElementById('downloadCardBtn');
 const suggestWordBtn = document.getElementById('suggestWordBtn');
@@ -150,6 +153,7 @@ async function convert() {
     if (!res.ok) throw new Error(data.error || 'Conversion failed');
 
     wordResults = Array.isArray(data.segments) ? data.segments : [];
+    conversionMode = data.mode || '';
     if (wordResults.length === 0) {
       wordResults = [{
         source: input,
@@ -165,7 +169,13 @@ async function convert() {
     renderWordTokens();
     renderResult();
 
-    const needsBreakdown = wordResults.length > 1 || wordResults.some(wr => (wr.options || []).length > 1 || !wr.matched);
+    const hasSingleNameVariants = wordResults.length === 1
+      && wordResults[0].matched
+      && Array.isArray(wordResults[0].options)
+      && wordResults[0].options.length > 1
+      && (conversionMode === 'exact_name' || conversionMode === 'alias_name');
+    const needsBreakdown = !hasSingleNameVariants
+      && (wordResults.length > 1 || wordResults.some(wr => (wr.options || []).length > 1 || !wr.matched));
     wordTokensSection.classList.toggle('hidden', !needsBreakdown);
 
     downloadCardBtn.classList.remove('hidden');
@@ -202,6 +212,50 @@ function renderResult() {
   }
 
   resultSection.classList.remove('hidden');
+  renderNameVariants();
+}
+
+function renderNameVariants() {
+  if (!nameVariantSection || !nameVariantList) return;
+  const showVariants = wordResults.length === 1
+    && wordResults[0].matched
+    && Array.isArray(wordResults[0].options)
+    && wordResults[0].options.length > 1
+    && (conversionMode === 'exact_name' || conversionMode === 'alias_name');
+
+  if (!showVariants) {
+    nameVariantSection.classList.add('hidden');
+    nameVariantList.innerHTML = '';
+    return;
+  }
+
+  const wr = wordResults[0];
+  const selectedIndex = wr.selectedIndex || 0;
+  const srcClass = langClass(fromLang);
+  const tgtClass = langClass(toLang);
+
+  nameVariantList.innerHTML = wr.options.map((option, idx) => {
+    const src = option[fromLang] || wr.source || '';
+    const tgt = option[toLang] || wr.source || '';
+    return `<button
+      type="button"
+      class="name-variant-btn${idx === selectedIndex ? ' active' : ''}"
+      data-variant-index="${idx}">
+      <span class="name-variant-btn__target ${tgtClass}">${escHtml(tgt)}</span>
+      <span class="name-variant-btn__source ${srcClass}">${escHtml(src)}</span>
+    </button>`;
+  }).join('');
+
+  nameVariantList.querySelectorAll('.name-variant-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.variantIndex, 10);
+      wordResults[0].selectedIndex = idx;
+      renderNameVariants();
+      renderResult();
+    });
+  });
+
+  nameVariantSection.classList.remove('hidden');
 }
 
 function renderWordTokens() {
@@ -285,7 +339,18 @@ function openDownloadCard() {
         <button class="modal__close" aria-label="Close">×</button>
       </div>
       <div class="modal__body">
-        <div class="name-card-preview">
+        <div class="name-card-controls">
+          <label class="name-card-control">
+            <span>Background color</span>
+            <input type="color" id="_cardBgColor" value="#1a3d2b" />
+          </label>
+          <label class="name-card-control">
+            <span>Background image</span>
+            <input type="file" id="_cardBgImage" accept="image/*" />
+          </label>
+          <button type="button" class="btn btn--ghost name-card-remove-image" id="_removeCardBgImage">Remove image</button>
+        </div>
+        <div class="name-card-preview" id="_cardPreview">
           <div class="name-card-preview__lang">${escHtml(LANG_LABELS[fromLang])}</div>
           <div class="name-card-preview__name ${langClass(fromLang)}">${escHtml(input)}</div>
           <div class="name-card-preview__arrow">↓</div>
@@ -300,6 +365,38 @@ function openDownloadCard() {
     </div>`;
 
   document.body.appendChild(modal);
+  const preview = modal.querySelector('#_cardPreview');
+  const bgColorInput = modal.querySelector('#_cardBgColor');
+  const bgImageInput = modal.querySelector('#_cardBgImage');
+  const removeBgImageBtn = modal.querySelector('#_removeCardBgImage');
+  let customBgImage = '';
+
+  function updateCardPreview() {
+    preview.style.backgroundColor = bgColorInput.value;
+    preview.style.backgroundImage = customBgImage
+      ? `linear-gradient(rgba(15, 23, 42, 0.28), rgba(15, 23, 42, 0.35)), url('${customBgImage}')`
+      : '';
+  }
+
+  bgColorInput.addEventListener('input', updateCardPreview);
+  bgImageInput.addEventListener('change', () => {
+    const file = bgImageInput.files && bgImageInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      customBgImage = reader.result || '';
+      updateCardPreview();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  removeBgImageBtn.addEventListener('click', () => {
+    customBgImage = '';
+    bgImageInput.value = '';
+    updateCardPreview();
+  });
+
+  updateCardPreview();
   modal.querySelector('.modal__close').onclick = () => modal.remove();
   modal.querySelector('#_closeCardBtn').onclick = () => modal.remove();
   modal.querySelector('#_printCardBtn').onclick = () => window.print();
@@ -384,8 +481,11 @@ function renderHistory() {
 function clearAll() {
   nameInput.value = '';
   wordResults = [];
+  conversionMode = '';
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
+  if (nameVariantSection) nameVariantSection.classList.add('hidden');
+  if (nameVariantList) nameVariantList.innerHTML = '';
   resultSection.classList.add('hidden');
   downloadCardBtn.classList.add('hidden');
   setStatus('');
