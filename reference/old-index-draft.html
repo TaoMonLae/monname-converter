@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-language Name Converter</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="apple-touch-icon" href="https://placehold.co/192x192/1e293b/a5f3fc?text=မန်">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Padauk:wght@400;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .my-font {
+            font-family: 'Padauk', sans-serif;
+        }
+
+        .choice-button {
+            background-color: #334155;
+            color: #67e8f9;
+            border: 1px solid #475569;
+            padding: 0.25rem 0.75rem;
+            margin: 0 0.25rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+            font-size: 1.125rem;
+        }
+
+        .choice-button:hover {
+            background-color: #475569;
+            color: #a5f3fc;
+        }
+
+        #nameCard {
+            width: 400px;
+            padding: 2rem;
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            background-size: cover;
+            background-position: center;
+        }
+
+        #suggestionModal.hidden,
+        #customizationModal.hidden,
+        #aboutModal.hidden,
+        #toast.hidden,
+        #loadingIndicator.hidden,
+        #historyPanel.hidden {
+            display: none;
+        }
+
+        #toast {
+            transition: opacity 0.5s, transform 0.5s;
+        }
+
+        #historyToggleIcon {
+            transition: transform 0.3s;
+        }
+
+        .bg-option {
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .bg-option.selected {
+            border-color: #22d3ee;
+            /* cyan-400 */
+        }
+    </style>
+</head>
+
+<body class="bg-slate-900 text-white flex items-center justify-center min-h-screen py-10">
+
+    <div class="w-full max-w-md mx-auto p-4 md:p-8">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl shadow-cyan-500/10 p-8">
+
+            <div class="text-center">
+                <h1 class="text-2xl md:text-3xl font-bold text-cyan-400 mb-6">Name Converter</h1>
+            </div>
+
+            <div id="loadingIndicator" class="text-center my-4 hidden">
+                <p class="text-slate-400">Loading Dictionary...</p>
+            </div>
+
+            <!-- Language Selectors -->
+            <div class="flex items-center gap-2 mb-4">
+                <div class="w-full">
+                    <label for="fromLang" class="text-sm text-slate-400">From</label>
+                    <select id="fromLang"
+                        class="w-full bg-slate-700 border border-slate-600 text-white rounded-lg p-2 mt-1">
+                        <option value="burmese">Burmese</option>
+                        <option value="mon">Mon</option>
+                        <option value="english">English</option>
+                    </select>
+                </div>
+                <button id="swapBtn" title="Swap Languages"
+                    class="p-3 mt-6 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors duration-300 flex justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-300" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                </button>
+                <div class="w-full">
+                    <label for="toLang" class="text-sm text-slate-400">To</label>
+                    <select id="toLang"
+                        class="w-full bg-slate-700 border border-slate-600 text-white rounded-lg p-2 mt-1">
+                        <option value="mon">Mon</option>
+                        <option value="burmese">Burmese</option>
+                        <option value="english">English</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="inputContainer" class="relative">
+                <div id="burmeseInputGroup">
+                    <label for="burmeseName"
+                        class="my-font block text-left text-sm font-medium text-slate-300 mb-2">ချူစုတ် ယၟုဗၟာညိ</label>
+                    <input type="text" id="burmeseName"
+                        class="my-font bg-slate-700 border border-slate-600 text-white text-lg rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3.5 placeholder-slate-400"
+                        placeholder="ဥပမာ၊ အောင်မင်းကျော်">
+                </div>
+                <div id="monInputGroup" class="hidden">
+                    <label for="monName"
+                        class="my-font block text-left text-sm font-medium text-slate-300 mb-2">ချူစုတ် ယၟုမန်ညိ</label>
+                    <input type="text" id="monName" 
+                    class="my-font bg-slate-700 border border-slate-600 text-white text-lg rounded-lg
+                    focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3.5 placeholder-slate-400"
+                    placeholder="ဥပမာ၊ အံၚ်မေန်ကျဝ်">
+                </div>
+                <div id="englishInputGroup" class="hidden">
+                    <label for="englishName" class="block text-left text-sm font-medium text-slate-300 mb-2">ချူယၟုဗတ်အေၚ်္ဂလိက်ညိ</label>
+                    <input type="text" id="englishName"
+                        class="bg-slate-700 border border-slate-600 text-white text-lg rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3.5 placeholder-slate-400"
+                        placeholder="e.g., Aung Min Kyaw">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 mt-6">
+                <button id="clearBtn"
+                    class="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-4 rounded-lg">Clear</button>
+                <button id="convertBtn"
+                    class="w-full bg-cyan-500 hover:bg-cyan-600 focus:ring-4 focus:ring-cyan-500/50 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+                    Convert
+                </button>
+            </div>
+
+            <div class="relative mt-6">
+                <label id="outputLabel"
+                    class="my-font block text-left text-sm font-medium text-slate-300 mb-2">Result</label>
+                <div id="outputDiv"
+                    class="my-font bg-slate-900 border border-slate-700 text-cyan-300 text-2xl rounded-lg w-full p-4 pr-12 min-h-[70px] flex items-center justify-center flex-wrap">
+                </div>
+                <button id="copyBtn" title="Copy to Clipboard" aria-label="Copy result to clipboard"
+                    class="absolute top-10 right-3 text-slate-500 hover:text-cyan-400 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mt-6 space-y-4">
+                <button id="customizeBtn"
+                    class="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 focus:ring-4 focus:ring-purple-500/50 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l-2.293-2.293a1 1 0 010-1.414l7-7a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0z" />
+                    </svg>
+                    Customize & Download Card
+                </button>
+                <button id="suggestBtn"
+                    class="w-full flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-700 focus:ring-4 focus:ring-slate-500/50 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    Suggest a Word
+                </button>
+            </div>
+
+            <div class="mt-6 border-t border-slate-700 pt-4">
+                <button id="historyToggle" class="w-full flex justify-between items-center text-left text-slate-300">
+                    <span class="font-medium">Recent History</span>
+                    <svg id="historyToggleIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <div id="historyPanel" class="hidden mt-3 space-y-2"></div>
+            </div>
+
+            <div class="mt-4 text-center">
+                <button id="aboutBtn" class="text-sm text-slate-400 hover:text-cyan-400 transition-colors">About this
+                    App</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="nameCard" class="my-font">
+        <div class="text-center">
+            <p id="cardToLabel" class="text-indigo-400 text-lg"></p>
+            <h2 id="cardToName" class="text-4xl font-bold text-white mt-1 mb-6"></h2>
+            <p id="cardFromLabel" class="text-cyan-400 text-lg"></p>
+            <h2 id="cardFromName" class="text-4xl font-bold text-white mt-1"></h2>
+        </div>
+        <div class="border-t border-slate-600 mt-8 pt-4 text-center">
+            <p class="text-slate-400 text-xs">Generated with Name Converter</p>
+        </div>
+    </div>
+
+    <div id="suggestionModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-slate-800 rounded-2xl shadow-2xl p-8 w-full max-w-sm m-4 relative">
+            <button id="closeModalBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h3 class="text-xl font-bold text-cyan-400 mb-6 text-center">Suggest a New Word</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="suggestBurmese" class="my-font block text-sm font-medium text-slate-300 mb-2">Burmese
+                        Word (ဗမာ)</label>
+                    <input type="text" id="suggestBurmese"
+                        class="my-font bg-slate-700 border border-slate-600 text-white text-lg rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3">
+                </div>
+                <div>
+                    <label for="suggestMon" class="my-font block text-sm font-medium text-slate-300 mb-2">Mon Word
+                        (မန်)</label>
+                    <input type="text" id="suggestMon"
+                        class="my-font bg-slate-700 border border-slate-600 text-white text-lg rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3">
+                </div>
+                <div>
+                    <label for="suggestEnglish" class="block text-sm font-medium text-slate-300 mb-2">English
+                        (Phonetic)</label>
+                    <input type="text" id="suggestEnglish"
+                        class="bg-slate-700 border border-slate-600 text-white text-lg rounded-lg focus:ring-cyan-500 focus:border-cyan-500 block w-full p-3">
+                </div>
+                <button id="submitSuggestionBtn"
+                    class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg mt-6">Submit
+                    Suggestion</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="customizationModal"
+        class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-slate-800 rounded-2xl shadow-2xl p-8 w-full max-w-lg m-4 relative">
+            <button id="closeCustomizeModalBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h3 class="text-xl font-bold text-purple-400 mb-6 text-center">Customize Your Name Card</h3>
+            <div class="mb-6">
+                <h4 class="text-lg font-medium text-slate-300 mb-3">Card Preview</h4>
+                <div id="cardPreview" class="w-full h-56 rounded-lg bg-center bg-cover flex items-center justify-center"
+                    style="background-image: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);">
+                    <div class="text-center my-font">
+                        <p id="previewToLabel" class="text-indigo-400 text-sm"></p>
+                        <h2 id="previewToName" class="text-2xl font-bold text-white"></h2>
+                        <p id="previewFromLabel" class="text-cyan-400 text-sm mt-3"></p>
+                        <h2 id="previewFromName" class="text-2xl font-bold text-white"></h2>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-6">
+                <h4 class="text-lg font-medium text-slate-300 mb-3">Choose a Background</h4>
+                <div id="bgOptionsContainer" class="grid grid-cols-3 sm:grid-cols-6 gap-3"></div>
+            </div>
+            <div class="mb-6">
+                <label for="bgUpload" class="block text-sm font-medium text-slate-300 mb-2">Or upload your own</label>
+                <input type="file" id="bgUpload" accept="image/*"
+                    class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-500 file:text-white hover:file:bg-purple-600" />
+            </div>
+            <button id="downloadFinalCardBtn"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg mt-6">Download
+                Card</button>
+        </div>
+    </div>
+
+    <div id="aboutModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-slate-800 rounded-2xl shadow-2xl p-8 w-full max-w-md m-4 relative">
+            <button id="closeAboutModalBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <h3 class="text-xl font-bold text-cyan-400 mb-4 text-center">About This App</h3>
+            <p class="text-slate-300 text-center mb-6">This tool provides bidirectional name conversion between Burmese,
+                Mon, and English.</p>
+            <div class="text-left space-y-2 text-slate-400">
+                <p><strong class="text-slate-200">Key Features:</strong></p>
+                <ul class="list-disc list-inside space-y-1">
+                    <li>Convert names between Burmese, Mon, and English.</li>
+                    <li>Handle ambiguous words with interactive choices.</li>
+                    <li>Suggest new words to improve the dictionary.</li>
+                    <li>Customize and download a shareable name card.</li>
+                    <li>Works offline as a Progressive Web App (PWA).</li>
+                </ul>
+                <p class="pt-4"><strong class="text-slate-200">Author:</strong></p>
+                <p>Tao Mon Lae</p>
+                <a href="admin.html" class="text-xs text-slate-500 hover:text-cyan-500 block text-center pt-2">Admin
+                    Panel</a>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"
+        class="hidden fixed bottom-5 right-5 bg-green-500 text-white py-3 px-6 rounded-lg shadow-lg transform translate-y-20 opacity-0">
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+            const firebaseConfig = {
+                apiKey: "AIzaSyD-RHL8aWsb2T8FhbenAh_IGs7INCkF_Bg",
+                authDomain: "name-converter-mon-burmese-eng.firebaseapp.com",
+                projectId: "name-converter-mon-burmese-eng",
+                storageBucket: "name-converter-mon-burmese-eng.firebasestorage.app",
+                messagingSenderId: "748138761701",
+                appId: "1:748138761701:web:799f6c782c862d3eb7b30c",
+                measurementId: "G-V0F0FFSX7H"
+            };
+
+        let db;
+        try {
+            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+            }
+        } catch (e) { console.error("Firebase initialization failed:", e); }
+
+        const fromLangSelect = document.getElementById('fromLang');
+        const toLangSelect = document.getElementById('toLang');
+        const burmeseNameInput = document.getElementById('burmeseName');
+        const monNameInput = document.getElementById('monName'); // FIXED: Changed to monName
+        const englishNameInput = document.getElementById('englishName');
+        const convertBtn = document.getElementById('convertBtn');
+        const swapBtn = document.getElementById('swapBtn');
+        const outputDiv = document.getElementById('outputDiv');
+        const burmeseInputGroup = document.getElementById('burmeseInputGroup');
+        const monInputGroup = document.getElementById('monInputGroup');
+        const englishInputGroup = document.getElementById('englishInputGroup');
+        const outputLabel = document.getElementById('outputLabel');
+        const nameCard = document.getElementById('nameCard');
+        const cardToLabel = document.getElementById('cardToLabel');
+        const cardToName = document.getElementById('cardToName');
+        const cardFromLabel = document.getElementById('cardFromLabel');
+        const cardFromName = document.getElementById('cardFromName');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const suggestBtn = document.getElementById('suggestBtn');
+        const suggestionModal = document.getElementById('suggestionModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const submitSuggestionBtn = document.getElementById('submitSuggestionBtn');
+        const suggestBurmeseInput = document.getElementById('suggestBurmese');
+        const suggestMonInput = document.getElementById('suggestMon');
+        const suggestEnglishInput = document.getElementById('suggestEnglish');
+        const toast = document.getElementById('toast');
+        const clearBtn = document.getElementById('clearBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const historyToggle = document.getElementById('historyToggle');
+        const historyToggleIcon = document.getElementById('historyToggleIcon');
+        const historyPanel = document.getElementById('historyPanel');
+        const customizeBtn = document.getElementById('customizeBtn');
+        const customizationModal = document.getElementById('customizationModal');
+        const closeCustomizeModalBtn = document.getElementById('closeCustomizeModalBtn');
+        const cardPreview = document.getElementById('cardPreview');
+        const previewToLabel = document.getElementById('previewToLabel');
+        const previewToName = document.getElementById('previewToName');
+        const previewFromLabel = document.getElementById('previewFromLabel');
+        const previewFromName = document.getElementById('previewFromName');
+        const bgOptionsContainer = document.getElementById('bgOptionsContainer');
+        const bgUpload = document.getElementById('bgUpload');
+        const downloadFinalCardBtn = document.getElementById('downloadFinalCardBtn');
+        const aboutBtn = document.getElementById('aboutBtn');
+        const aboutModal = document.getElementById('aboutModal');
+        const closeAboutModalBtn = document.getElementById('closeAboutModalBtn');
+
+        let dictionaries = {
+            burmese_mon: {},
+            burmese_english: {},
+            mon_english: {}
+        };
+        const reverseDictionaries = {};
+        let conversionHistory = [];
+        let selectedCardBackground = 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)';
+
+        const predefinedBackgrounds = ['linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', 'linear-gradient(135deg, #3730a3 0%, #1e1b4b 100%)', 'linear-gradient(135deg, #047857 0%, #064e3b 100%)', 'https://images.unsplash.com/photo-1554147090-e1221a04a025?ixlib=rb-4.0.3&q=85&fm=jpg&crop=entropy&cs=srgb&w=600', 'https://images.unsplash.com/photo-1501854140801-50d01698950b?ixlib=rb-4.0.3&q=85&fm=jpg&crop=entropy&cs=srgb&w=600', 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?ixlib=rb-4.0.3&q=85&fm=jpg&crop=entropy&cs=srgb&w=600'];
+
+        function useFallbackDictionary() {
+            dictionaries.burmese_mon = {
+                'အောင်': 'အံၚ်',
+                'မင်း': 'မေန်',
+                'ကျော်': 'ကျဝ်', // Added for reverse Mon to Burmese
+                'လှ': 'လှ', 'စိုး': 'သဵုဝ်', 'ဆိုး': 'သဵုဝ်', 'သူ': 'တူ', 'ဇော်': 'ဇြဝ်', 'မြင့်': 'မျေတ်', 'နိုင်': 'နဲာ', 'ဝင်း': 'ဝေန်', 
+                'ကို': 'ကိုဝ်', 'မောင်': 'မိုၚ်', 'သန်း': 'တာန်', 'ထွန်း': 'ထောန်', 'အေး': 'ဨ', 'ကြည်': 'ကျဳ', 'သိန်း': 'သိင်', 
+                'ငွေ': 'ၚိုဲ', 'ရွှေ': 'ယှိုဲ', 'ကျင်': 'ကျေန်', 'တောက်': 'တု', 'ချစ်': 'ချေတ်', 'မိုး': 'မဵုဝ်', 'မွန်': 'မန်', 'အိုင်း': 
+                'အာဲ', 'သွေး': 'သွေ', 'အောင်မြင်': 'အံၚ်မျေန်', 'လယ်': 'လဴ', 'ကျိုက်': 'ကျာ်', 'ခန့်': 'ခက်', 'ဇာ': 'ဇြာ', 
+                'မိ': 'မိ', 'ငယ်': 'ၚေဝ်', 'ဟောင်': 'ဟံၚ်', 'မာန်': 'မာန်', 'နော': 'နဝ်', 'မေ': 'မေ', 'လွင်': 'လောန်', 
+                'စန်း': 'သာန်', 'လှိုင်': 'လှာင်', 'ချမ်း': 'ဆာန်', 'ခွေး': 'ခဝေ', 'စားပွဲ': 'သပေါဲ', 'အိမ်': 'အိင်', 'လန်း': 'ဠာန်', 
+                'ပန်း': 'ပါန်', 'ပြည့်': 'ပျေတ်', 'စုံ': 'ဇြိၚ်', 'မော်': 'မဝ်', 'ထက်': 'ထိတ်', 'ဇင်': 'ဇြေန်', 'အိန္ဒြေ': 'အိန်ရဳ', 
+                'သီ': 'သြဳ', 'ယံ': 'ယာန်', 'ဗညား': 'ဗညာ', 'နွယ်': 'နဲ', 'ဗညယ်': 'ဗညာ', 'အီ': 'အီ', 'ဂျနူး': 'ဇၞူ', 'ရိ': 'ရိ', 
+                'စန္ဒာ': 'စန္ဒာ', 'နွန်': 'နန်', 'တင့်': 'တေအ်', 'ရင်': 'ယေန်', 'ရင်': 'ရေၚ်', 'မနို့': 'မၞိက်', 'စွမ်း': 'သြန်', 'နဒီ': 'နဒဳ', 
+                'ပိုး': 'ပဵုဝ်', 'အိ': 'အိ', 'ဖြူ': 'ဖျူ', 'ကြံ': 'ကျာန်', 'တိုင်း': 'တာၚ်', 'စနိုင်း': 'သၞာၚ်', 'ကျဲ': 'ကျေဝ်', 'သာၚ်': 'စိုင်း', 
+                'ဝဏ္ဏ': 'ဝဏ္ဏ', 'ထင်': 'ထေန်', 'ရှိင်း': 'ယှိုၚ်', 'ပိုင်': 'ပါင်', 'ထော': 'ထဝ်', 'ပကောင်း': 'ပ္ကဴ', 'မို': 'မောဝ်', 
+                'မော': 'မောဝ်', 'တိုင်း': 'တိုၚ်', 'ဂျစ်': 'ဇေတ်', 'နန်း': 'ဏာန်', 'ဟော': 'ဟဝ်', 'ဟောမ်': 'ဟမ်', 'မူး': 'မူ', 'မှူး': 'မှူ', 
+                'ဝေ': 'ဝေ', 'အိန္ဒြာ': 'အိန္ဒြာ', 'မြတ်': 'မျာတ်', 'လုံး': 'ဠုၚ်', 'အာဇာနည်': 'အာဇြာဏဳ', 'အာဂျယ်နို': 'အာဇာနဲ', 'ဟိန်း': 'ဟုၚ်', 
+                'ဌေး': 'ထေ', 'ဂျူး': 'ဂျူ', 'ရိုး': 'ယဵု', 'ဂိုး': 'ဂဵု', 'တနိုင်း': 'တၞာၚ်', 'လယီ': 'လျး', 'ရီ': 'ရဳ', 'စိုက်': 'သိုက်', 'ဆိုက်': 'သိုက်', 
+                'ဂျွန်ပါး': 'စမ္ပါ', 'ပွန်': 'ပေင်', 'ကွန်း': 'ကောန်', 'နိုင်': 'နာၚ်', 'စဂျင်း': 'သ္ဇေၚ်', 'လျီ': 'လျး', 'လျယ့်': 'လျး', 
+                'လရီ': 'လျး', 'စု': 'သု', 'လဝီ': 'လွီ', 'ဟောင်း': 'ဟံၚ်', 'ဆား': 'သာ', 'တလ': 'တၠ', 'ပွမ်း': 'ပိုန်', 
+                'ဒေဝီ': 'ဒေဝဳ', 'လွား': 'လွာ', 'ဝီ': 'ဝဳ', 'ဉာဏ်': 'ညာဏ်', 'ဂျယ်': 'ဇာ', 'ပလွာ': 'ပလွာ', 'ဝတွား': 'ဝတဳ', 
+                'ကနင့်(ဟ်)': 'ကၞေဟ်', 'စွမ်းချယ်ရီ': 'သဥ္ဇာရဳ', 'ဂျီဝယ့်ဉာဏ်': 'ဇဳဝညာဏ်', 'ခွန်းလွား': 'ခန်လွာ', 'ဒီပ': 'ဒဳပ', 
+                'ဂူ(လ်)': 'ဂေါဝ်', 'တမာ့': 'တၟး', 'ဂျောင်း': 'စဴ', 'ဒါး': 'ဍာ', 'ယား': 'ယျာ', 'ပွိုင်း': 'ပေင်', 'အင်း': 'အိန်', 
+                'ဆွိုင်း': 'သဳ', 'ဗီဂျယ့်': 'ဗဳဇ', 'ကင့်(ဟ်)': 'ကှ်ေ', 'ကင့်': 'ကှ်ေ', 'ကနင့်': 'ကၞေဟ်', 'စနွိုင်း': 'သၞိၚ်', 'စနိုး': 'သၞိၚ်', 
+                'ဓနယ့်': 'ဓန', 'ရော့': 'ရတ်', 'လျိန်': 'လျုၚ်', 'ကီး': 'ကေဝ်', 'ချိုင်း': 'ဆာဲ', 'ဆောင့်': 'သု', 'မရော့': 'မြဟ်', 
+                'ခေတ်': 'ခေတ်', 'ဂေါင်': 'ဂံၚ်', 'လဝိမ်': 'လဝိၚ်', 'စိုက်ခမာ': 'သိုက္ခမာ', 'စိုင်း': 'သိုၚ်', 'ရာ့': 'ရ', 'ဝဏ်': 'ဝဏ်', 
+                'ဂျွန်း': 'စောန်', 'အား': 'အး', 'ဗု': 'ဗု', 'လဂွန်း': 'လ္ဂန်', 'ဂျွော်': 'ဇဲ', 'မနွေ့': 'မၞိက်', 'ဟန်းင်': 'ဟင်', 'ပုဏ္ဏမီ': 'ပုဏ္ဏမဳ', 
+                'သမိန်': 'သၟိၚ်', 'ရွိုင်း': 'ရဳ', 'ဒီ': 'ဒဳ', 'လငူ': 'လ္ၚောဝ်', 'ဂျရိုင်း': 'စရာဲ', 'မွိုင်း': 'မဳ', 'လွတ်': 'လွတ်', 'ရင်ဒယ့်': 'ရိန္ဒ', 
+                'ဧကာ့': 'ဨက', 'ဆွား': 'သဳ', 'ဆွားဒယ်': 'သဳဒါ', 'ဒိုင်း': 'ဍာဲ', 'ဆွန်းဓြီ': 'သုန္ဓရဳ', 'ဂျနယ့်': 'ဇၞး', 'ပေါ်': 'ပေါ်', 
+                'လွန်': 'လောန်', 'အဂ္ဂယ့်': 'အဂ္ဂ', 'ထော်': 'ဓရ်', 'ဒမ်': 'ဍာံ', 'အွန်ဂျလီ': 'အဥ္ဇလဳ', 'ကွန်ဂျယ့်နယ့်': 'ကဥ္ဇန', 'ဂျွယ်': 'ဇဲ', 
+                'စွန်းခြယ်': 'သဥ္ဇာ', 'အ': 'အ', 'ဣ': 'ဣ', 'ဤ': 'ဤ', 'ဥ': 'ဥ', 'ဦ': 'ဥူ', 'ဧ': 'ဨ', 'ဩ': 'ဩ', 'ဪ': 'အဴ', 
+                'က': 'က', 'ခ': 'ခ', 'ဂ': 'ဂ', 'ဃ': 'ဃ', 'င': 'ၚ', 'စ': 'စ', 'ဆ': 'ဆ', 'ဇ': 'ဇ', 'ဈ': 'ၛ', 'ည': 'ည', 'ဋ': 'ဋ', 
+                'ဌ': 'ဌ', 'ဍ': 'ဍ', 'ဎ': 'ဎ', 'ဏ': 'ဏ', 'တ': 'တ', 'ထ': 'ထ', 'ဒ': 'ဒ', 'ဓ': 'ဓ', 'န': 'န', 'ပ': 'ပ', 'ဖ': 'ဖ', 
+                'ဗ': 'ဗ', 'ဘ': 'ဘ', 'မ': 'မ', 'ယ': 'ယ', 'ရာ့': 'ရ','ရယ့်':'ရ', 'လ': 'လ', 'ဝ': 'ဝ', 'သ': 'သ', 'ဟ': 'ဟ', 'ဠ': 'ဠ', 
+                'ျ': 'ျ', 'ြ': 'ြ', 'ွ': 'ွ', 'ှ': 'ှ', '်': '်', 'ာ': 'ာ', 'ိ': 'ိ', 'ီ': 'ီ', 'ု': 'ု', 'ူ': 'ူ', 'ေ': 'ေ', 
+                'ဲ': 'ဲ', 'ံ': 'ံ', '့': '့', 'း': 'း',
+            };
+            dictionaries.burmese_english = {
+                'အောင်': 'Aung',
+                'မင်း': 'Min',
+                'ကျော်': 'Kyaw', // Added for Burmese to English
+                'လှ': 'Hla', 'စိုး': 'Soe', 'ဆိုး': 'Soe', 'သူ': 'Thu', 'မောင်': 'Maung', 'ဝင်း': 'Win'
+            };
+            dictionaries.mon_english = {
+                'အံၚ်': 'Aung',
+                'မေန်': 'Min',
+                'ကျဝ်': 'Kyaw', // Added for Mon to English
+                'သဵုဝ်': 'Soe', 'တူ': 'Thu', 'မိုၚ်': 'Maung', 'ဝေန်': 'Win'
+            };
+            console.log("Using fallback dictionaries.");
+        }
+
+        async function loadDictionaries() {
+            if (!db) {
+                useFallbackDictionary();
+                buildAllReverseMaps();
+                return;
+            }
+            loadingIndicator.classList.remove('hidden');
+            try {
+                const querySnapshot = await getDocs(collection(db, "dictionary"));
+                if (querySnapshot.empty) {
+                    useFallbackDictionary();
+                } else {
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        if (data.burmese && data.mon) dictionaries.burmese_mon[data.burmese] = data.mon;
+                        if (data.burmese && data.english) dictionaries.burmese_english[data.burmese] = data.english;
+                        if (data.mon && data.english) dictionaries.mon_english[data.mon] = data.english;
+                    });
+                    console.log("Dictionaries loaded from Firestore.");
+                }
+            } catch (error) {
+                console.error("Error loading dictionaries from Firestore, using fallback: ", error);
+                useFallbackDictionary();
+            } finally {
+                buildAllReverseMaps();
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        function buildReverseMap(forwardMap) {
+            const reverseMap = {};
+            for (const [key, value] of Object.entries(forwardMap)) {
+                if (reverseMap[value]) {
+                    if (!Array.isArray(reverseMap[value])) {
+                        reverseMap[value] = [reverseMap[value]];
+                    }
+                    reverseMap[value].push(key);
+                } else {
+                    reverseMap[value] = key;
+                }
+            }
+            return reverseMap;
+        }
+
+        function buildAllReverseMaps() {
+            reverseDictionaries.mon_burmese = buildReverseMap(dictionaries.burmese_mon);
+            reverseDictionaries.english_burmese = buildReverseMap(dictionaries.burmese_english);
+            reverseDictionaries.english_mon = buildReverseMap(dictionaries.mon_english);
+        }
+
+        function handleChoiceClick(event) {
+            const chosenWord = event.target.textContent;
+            const optionContainer = event.target.parentElement;
+            const textNode = document.createTextNode(chosenWord);
+            optionContainer.parentNode.replaceChild(textNode, optionContainer);
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function renderOutput(inputText, map) {
+            outputDiv.innerHTML = '';
+            if (!inputText) return;
+            const keys = Object.keys(map);
+            if (keys.length === 0) return;
+
+            const normalizedMap = Object.fromEntries(
+                Object.entries(map).map(([key, value]) => [key.toLowerCase(), value])
+            );
+            const pattern = keys
+                .sort((a, b) => b.length - a.length)
+                .map(escapeRegExp)
+                .join('|');
+            const regex = new RegExp(pattern, 'gi');
+            let lastIndex = 0;
+            let match;
+            while ((match = regex.exec(inputText)) !== null) {
+                if (match.index > lastIndex) {
+                    outputDiv.appendChild(document.createTextNode(inputText.substring(lastIndex, match.index)));
+                }
+                const replacement = normalizedMap[match[0].toLowerCase()];
+                if (Array.isArray(replacement)) {
+                    const optionContainer = document.createElement('span');
+                    replacement.forEach(option => {
+                        const button = document.createElement('button');
+                        button.textContent = option;
+                        button.className = 'choice-button my-font';
+                        button.onclick = handleChoiceClick;
+                        optionContainer.appendChild(button);
+                    });
+                    outputDiv.appendChild(optionContainer);
+                } else {
+                    outputDiv.appendChild(document.createTextNode(replacement));
+                }
+                lastIndex = regex.lastIndex;
+            }
+            if (lastIndex < inputText.length) {
+                outputDiv.appendChild(document.createTextNode(inputText.substring(lastIndex)));
+            }
+        }
+
+        function updateUI() {
+            const fromLang = fromLangSelect.value;
+            const toLang = toLangSelect.value;
+            const langLabels = {
+                burmese: 'Burmese (ဗမာ)',
+                mon: 'Mon (မန်)',
+                english: 'English'
+            };
+            const fontClasses = {
+                burmese: 'my-font',
+                mon: 'my-font',
+                english: ''
+            };
+
+            [burmeseInputGroup, monInputGroup, englishInputGroup].forEach(el => el.classList.add('hidden'));
+            document.getElementById(`${fromLang}InputGroup`).classList.remove('hidden');
+
+            outputLabel.textContent = `Result in ${langLabels[toLang]}`;
+            outputDiv.className = `bg-slate-900 border border-slate-700 text-cyan-300 text-2xl rounded-lg w-full p-4 pr-12 min-h-[70px] flex items-center justify-center flex-wrap ${fontClasses[toLang]}`;
+
+            burmeseNameInput.value = '';
+            monNameInput.value = '';
+            englishNameInput.value = '';
+            outputDiv.innerHTML = '';
+            convertBtn.disabled = true;
+            convertBtn.classList.add('opacity-60', 'cursor-not-allowed', 'hover:scale-100');
+        }
+
+        function updateConvertButtonState() {
+            const fromLang = fromLangSelect.value;
+            const toLang = toLangSelect.value;
+            const inputText = document.getElementById(`${fromLang}Name`).value.trim();
+            const isDisabled = fromLang === toLang || !inputText;
+
+            convertBtn.disabled = isDisabled;
+            convertBtn.classList.toggle('opacity-60', isDisabled);
+            convertBtn.classList.toggle('cursor-not-allowed', isDisabled);
+            convertBtn.classList.toggle('hover:scale-100', isDisabled);
+        }
+
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.remove('hidden', 'translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+                setTimeout(() => toast.classList.add('hidden'), 500);
+            }, 2000);
+        }
+
+        function updateHistory(fromLang, fromText, toLang, toText) {
+            conversionHistory.unshift({ fromLang, fromText, toLang, toText });
+            if (conversionHistory.length > 5) conversionHistory.pop();
+            renderHistory();
+        }
+
+        function renderHistory() {
+            historyPanel.innerHTML = '';
+            if (conversionHistory.length === 0) {
+                historyPanel.innerHTML = `<p class="text-slate-500 text-sm text-center">No history yet.</p>`;
+                return;
+            }
+            conversionHistory.forEach(item => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'bg-slate-700 p-2 rounded-lg cursor-pointer hover:bg-slate-600 flex justify-between items-center text-sm';
+                const fromFont = item.fromLang !== 'english' ? 'my-font' : '';
+                const toFont = item.toLang !== 'english' ? 'my-font' : '';
+                historyItem.innerHTML = `
+                    <span class="${fromFont}">${item.fromText}</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                    <span class="${toFont}">${item.toText}</span>
+                `;
+                historyItem.onclick = () => {
+                    fromLangSelect.value = item.fromLang;
+                    toLangSelect.value = item.toLang;
+                    updateUI();
+                    document.getElementById(`${item.fromLang}Name`).value = item.fromText;
+                    outputDiv.textContent = item.toText;
+                    updateConvertButtonState();
+                };
+                historyPanel.appendChild(historyItem);
+            });
+        }
+
+        function populateBgOptions() {
+            predefinedBackgrounds.forEach(bg => {
+                const option = document.createElement('div');
+                option.className = 'bg-option w-full h-16 rounded-lg bg-cover bg-center';
+                option.style.backgroundImage = bg.startsWith('http') ? `url(${bg})` : bg;
+                option.dataset.bg = bg;
+                if (bg === selectedCardBackground) option.classList.add('selected');
+                option.onclick = () => {
+                    document.querySelectorAll('.bg-option').forEach(el => el.classList.remove('selected'));
+                    option.classList.add('selected');
+                    selectedCardBackground = bg;
+                    cardPreview.style.backgroundImage = bg.startsWith('http') ? `url(${bg})` : bg;
+                };
+                bgOptionsContainer.appendChild(option);
+            });
+        }
+
+        [burmeseNameInput, monNameInput, englishNameInput].forEach((input) => {
+            input.addEventListener('input', updateConvertButtonState);
+            input.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !convertBtn.disabled) {
+                    event.preventDefault();
+                    convertBtn.click();
+                }
+            });
+        });
+
+        fromLangSelect.addEventListener('change', () => {
+            updateUI();
+            updateConvertButtonState();
+        });
+        toLangSelect.addEventListener('change', () => {
+            updateUI();
+            updateConvertButtonState();
+        });
+
+        swapBtn.addEventListener('click', () => {
+            const from = fromLangSelect.value;
+            fromLangSelect.value = toLangSelect.value;
+            toLangSelect.value = from;
+            updateUI();
+            updateConvertButtonState();
+        });
+
+        convertBtn.addEventListener('click', () => {
+            const fromLang = fromLangSelect.value;
+            const toLang = toLangSelect.value;
+            const inputText = document.getElementById(`${fromLang}Name`).value.trim();
+
+            if (fromLang === toLang || !inputText) return;
+
+            let mapToUse;
+
+            // Determine the correct dictionary/map based on fromLang and toLang
+            if (fromLang === 'burmese') {
+                if (toLang === 'mon') {
+                    mapToUse = dictionaries.burmese_mon;
+                } else if (toLang === 'english') {
+                    mapToUse = dictionaries.burmese_english;
+                }
+            } else if (fromLang === 'mon') {
+                if (toLang === 'burmese') {
+                    mapToUse = reverseDictionaries.mon_burmese;
+                } else if (toLang === 'english') {
+                    mapToUse = dictionaries.mon_english;
+                }
+            } else if (fromLang === 'english') {
+                if (toLang === 'burmese') {
+                    mapToUse = reverseDictionaries.english_burmese;
+                } else if (toLang === 'mon') {
+                    mapToUse = reverseDictionaries.english_mon;
+                }
+            }
+
+            if (!mapToUse || Object.keys(mapToUse).length === 0) {
+                showToast(`Conversion from ${fromLang} to ${toLang} is not supported or dictionary is empty.`);
+                return;
+            }
+
+            renderOutput(inputText, mapToUse);
+
+            // Use a small delay to allow UI to update before saving to history
+            setTimeout(() => {
+                const resultText = outputDiv.textContent.trim();
+                // Only update history if there are no unresolved choices
+                if (inputText && resultText && !outputDiv.querySelector('.choice-button')) {
+                    updateHistory(fromLang, inputText, toLang, resultText);
+                }
+            }, 100);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            burmeseNameInput.value = '';
+            monNameInput.value = '';
+            englishNameInput.value = '';
+            outputDiv.innerHTML = '';
+            updateConvertButtonState();
+        });
+
+        copyBtn.addEventListener('click', () => {
+            const textToCopy = outputDiv.textContent.trim();
+            if (textToCopy && !outputDiv.querySelector('.choice-button')) {
+                navigator.clipboard.writeText(textToCopy).then(() => showToast('Copied to clipboard!'))
+                    .catch(err => console.error('Failed to copy text: ', err));
+            }
+        });
+
+        historyToggle.addEventListener('click', () => {
+            historyPanel.classList.toggle('hidden');
+            historyToggleIcon.classList.toggle('rotate-180');
+        });
+
+        suggestBtn.addEventListener('click', () => suggestionModal.classList.remove('hidden'));
+        closeModalBtn.addEventListener('click', () => suggestionModal.classList.add('hidden'));
+        suggestionModal.addEventListener('click', (e) => { if (e.target === suggestionModal) suggestionModal.classList.add('hidden'); });
+
+        submitSuggestionBtn.addEventListener('click', async () => {
+            if (!db) {
+                alert("Cannot submit suggestion. Database not connected.");
+                return;
+            }
+            const burmeseWord = suggestBurmeseInput.value.trim();
+            const monWord = suggestMonInput.value.trim();
+            const englishWord = suggestEnglishInput.value.trim();
+
+            if (burmeseWord && monWord && englishWord) {
+                try {
+                    await addDoc(collection(db, "suggestions"), {
+                        burmese: burmeseWord,
+                        mon: monWord,
+                        english: englishWord,
+                        timestamp: new Date()
+                    });
+
+                    // Update local dictionaries for the session
+                    dictionaries.burmese_mon[burmeseWord] = monWord;
+                    dictionaries.burmese_english[burmeseWord] = englishWord;
+                    dictionaries.mon_english[monWord] = englishWord;
+                    buildAllReverseMaps();
+
+                    suggestBurmeseInput.value = '';
+                    suggestMonInput.value = '';
+                    suggestEnglishInput.value = '';
+                    suggestionModal.classList.add('hidden');
+                    showToast('Suggestion submitted! Thank you.');
+                } catch (e) {
+                    console.error("Error adding suggestion: ", e);
+                    alert("Could not submit suggestion.");
+                }
+            } else {
+                alert('Please fill in all three fields.');
+            }
+        });
+
+        customizeBtn.addEventListener('click', () => {
+            const fromLang = fromLangSelect.value;
+            const toLang = toLangSelect.value;
+            const fromText = document.getElementById(`${fromLang}Name`).value.trim();
+            const toText = outputDiv.textContent.trim();
+
+            if (!toText || outputDiv.querySelector('.choice-button')) {
+                alert('Please convert a name and resolve all choices first.');
+                return;
+            }
+
+            const langLabels = { burmese: 'Burmese (ဗမာ)', mon: 'Mon (မန်)', english: 'English' };
+
+            previewFromName.textContent = fromText;
+            previewFromLabel.textContent = langLabels[fromLang];
+            previewToName.textContent = toText;
+            previewToLabel.textContent = langLabels[toLang];
+
+            customizationModal.classList.remove('hidden');
+        });
+
+        closeCustomizeModalBtn.addEventListener('click', () => customizationModal.classList.add('hidden'));
+
+        bgUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const imageUrl = e.target.result;
+                    selectedCardBackground = `url(${imageUrl})`;
+                    cardPreview.style.backgroundImage = selectedCardBackground;
+                    document.querySelectorAll('.bg-option').forEach(el => el.classList.remove('selected'));
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        downloadFinalCardBtn.addEventListener('click', () => {
+            cardFromName.textContent = previewFromName.textContent;
+            cardFromLabel.textContent = previewFromLabel.textContent;
+            cardToName.textContent = previewToName.textContent;
+            cardToLabel.textContent = previewToLabel.textContent;
+            nameCard.style.backgroundImage = selectedCardBackground;
+
+            html2canvas(nameCard, { backgroundColor: null, scale: 2, useCORS: true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = 'Name-Card.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        });
+
+        aboutBtn.addEventListener('click', () => aboutModal.classList.remove('hidden'));
+        closeAboutModalBtn.addEventListener('click', () => aboutModal.classList.add('hidden'));
+        aboutModal.addEventListener('click', (e) => { if (e.target === aboutModal) aboutModal.classList.add('hidden'); });
+
+        async function initializeAppLogic() {
+            await loadDictionaries();
+            updateUI();
+            renderHistory();
+            populateBgOptions();
+        }
+
+        initializeAppLogic();
+    </script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(registration => {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                }, err => {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+    </script>
+
+</body>
+
+</html>
