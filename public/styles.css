@@ -299,11 +299,49 @@ a:hover { color: var(--primary); text-decoration: underline; }
 
 .site-header__inner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: var(--space-sm) var(--space-md);
   justify-content: space-between;
   padding: var(--space-md) var(--space-lg);
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: white;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.brand-title,
+.brand-subtitle {
+  display: block;
+  line-height: 1.1;
+}
+
+.brand-title {
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.brand-subtitle {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  opacity: 0.72;
+  text-transform: uppercase;
 }
 
 .site-logo {
@@ -813,6 +851,8 @@ td {
 @media (max-width: 640px) {
   .container { padding: 0 var(--space-md); }
   .site-header__inner { padding: var(--space-sm) var(--space-md); }
+  .site-nav { width: 100%; justify-content: flex-end; }
+  .brand-subtitle { display: none; }
   .site-logo__sub { display: none; }
   .modal { border-radius: var(--radius-md); }
   table { font-size: 0.8rem; }
