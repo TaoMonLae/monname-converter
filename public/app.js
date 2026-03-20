@@ -1,9 +1,10 @@
 /**
  * Mon Names Converter — Name Converter Frontend
  * ==============================================
- * Converts names word-by-word using the dictionary API,
- * concatenates results, and lets users disambiguate words
- * that have multiple matches.
+ * Dictionary-first converter:
+ * 1) full-name exact lookup
+ * 2) internal longest-match segmentation if no exact
+ * 3) variant chips for per-segment target selection
  */
 
 const API_BASE = '/api';
@@ -140,13 +141,6 @@ submitSuggestBtn.addEventListener('click', async () => {
   }
 });
 
-// ── Close dropdowns when clicking outside ──────────────────
-document.addEventListener('click', e => {
-  if (!e.target.closest('.word-token--multi')) {
-    document.querySelectorAll('.word-token--multi.open').forEach(t => t.classList.remove('open'));
-  }
-});
-
 // ═══════════════════════════════════════════════════════════
 // ── Core: Convert ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
@@ -165,12 +159,13 @@ async function convert() {
   downloadCardBtn.classList.add('hidden');
 
   try {
-    // Step 1: Try exact full-input lookup first
-    const exactMatches = await searchWord(input);
-    const hasFullExact = exactMatches.some(r => r[fromLang] && r[fromLang].trim() === input);
+    // Step 1: Full-name exact lookup first (field or alias in source language)
+    const exactMatches = await searchWord(input, { exactOnly: false, limit: 25 });
+    const fullMatches = exactMatches.filter(r => isExactInSource(r, input));
+    const hasFullExact = fullMatches.length > 0;
 
     if (hasFullExact) {
-      wordResults = [{ word: input, matches: exactMatches, selectedIndex: 0, groupIndex: 0 }];
+      wordResults = [{ word: input, matches: fullMatches, selectedIndex: 0, groupIndex: 0 }];
     } else {
       // Step 2: Dictionary-based segmentation on the full input string
       // (does not rely on whitespace splitting — finds word boundaries via the dictionary)
@@ -204,20 +199,32 @@ async function convert() {
   }
 }
 
-async function searchWord(word) {
+function isExactInSource(entry, sourceText) {
+  const q = sourceText.trim();
+  const value = entry[fromLang];
+  if (value && value.trim() === q) return true;
+
+  if (!Array.isArray(entry.aliases)) return false;
+  return entry.aliases.some(a =>
+    a &&
+    a.language === fromLang &&
+    typeof a.alias === 'string' &&
+    a.alias.trim() === q
+  );
+}
+
+async function searchWord(word, { exactOnly = false, limit = 5 } = {}) {
   try {
     const params = new URLSearchParams({ q: word, lang: fromLang });
     const res = await fetch(`${API_BASE}/search?${params}`);
     if (!res.ok) return [];
     const { results } = await res.json();
 
-    // Prefer exact matches in the from-language field
-    const exact = results.filter(r => {
-      const val = r[fromLang];
-      return val && val.trim() === word.trim();
-    });
+    // Prefer exact matches in the source field or matching alias.
+    const exact = results.filter(r => isExactInSource(r, word));
+    if (exactOnly) return exact;
 
-    return exact.length > 0 ? exact : results.slice(0, 5);
+    return exact.length > 0 ? exact : results.slice(0, limit);
   } catch (e) {
     return [];
   }
@@ -277,7 +284,7 @@ async function segmentInput(input, depth = 0, groupIdx = 0) {
 
     // Fetch all dictionary entries that exactly match this segment value,
     // so the user can pick among multiple valid target-language forms.
-    const allMatches = await searchWord(val);
+    const allMatches = await searchWord(val, { exactOnly: true, limit: 25 });
     const matches = allMatches.length ? allMatches : [candidate];
 
     if (!remainder) {
@@ -342,23 +349,12 @@ function renderWordTokens() {
   const tokens = wordResults.map((wr, i) => renderToken(wr, i)).join('');
   wordTokensDiv.innerHTML = tokens || '';
 
-  // Toggle dropdowns on click
-  wordTokensDiv.querySelectorAll('.word-token--multi').forEach(token => {
-    token.addEventListener('click', e => {
-      const wasOpen = token.classList.contains('open');
-      document.querySelectorAll('.word-token--multi.open').forEach(t => t.classList.remove('open'));
-      if (!wasOpen) token.classList.add('open');
-    });
-  });
-
-  // Select an option from a multi-match dropdown
-  wordTokensDiv.querySelectorAll('.word-token__option').forEach(btn => {
+  // Select a variant from chips.
+  wordTokensDiv.querySelectorAll('.variant-chip').forEach(btn => {
     btn.addEventListener('click', e => {
-      e.stopPropagation();
       const wi = parseInt(btn.dataset.wordIndex, 10);
       const mi = parseInt(btn.dataset.matchIndex, 10);
       wordResults[wi].selectedIndex = mi;
-      btn.closest('.word-token--multi').classList.remove('open');
       renderWordTokens();
       renderResult();
     });
@@ -389,31 +385,30 @@ function renderToken(wr, i) {
     </div>`;
   }
 
-  // Multiple matches — build dropdown options
+  // Multiple matches — build variant chips
   const options = matches.map((m, j) => {
     const oSrc     = m[fromLang] || word;
     const oTgt     = m[toLang]   || '—';
     const oMeaning = m.meaning   ? m.meaning.substring(0, 40) : '';
     return `<button
-        class="word-token__option${j === selectedIndex ? ' active' : ''}"
+        type="button"
+        class="variant-chip${j === selectedIndex ? ' active' : ''}"
         data-word-index="${i}"
         data-match-index="${j}">
-      <span class="${srcClass}">${escHtml(oSrc)}</span>
-      <span class="word-token__option-sep">→</span>
-      <span class="${tgtClass}">${escHtml(oTgt)}</span>
-      ${oMeaning ? `<span class="word-token__meaning">${escHtml(oMeaning)}</span>` : ''}
+      <span class="variant-chip__target ${tgtClass}">${escHtml(oTgt)}</span>
+      <span class="variant-chip__source ${srcClass}">${escHtml(oSrc)}</span>
+      ${oMeaning ? `<span class="variant-chip__meaning">${escHtml(oMeaning)}</span>` : ''}
     </button>`;
   }).join('');
 
   return `<div class="word-token word-token--multi" data-index="${i}">
-    <span class="${srcClass}">${escHtml(srcText)}</span>
-    <span class="word-token__arrow">→</span>
-    <span class="${tgtClass}">${escHtml(tgtText)}</span>
-    <span class="word-token__count">${matches.length}</span>
-    <svg class="word-token__chevron" viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
-      <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-    </svg>
-    <div class="word-token__dropdown" role="listbox" aria-label="Choose match for ${escHtml(word)}">
+    <div class="word-token__summary">
+      <span class="${srcClass}">${escHtml(srcText)}</span>
+      <span class="word-token__arrow">→</span>
+      <span class="${tgtClass}">${escHtml(tgtText)}</span>
+      <span class="word-token__count">${matches.length} variants</span>
+    </div>
+    <div class="variant-chip-list" role="listbox" aria-label="Choose match for ${escHtml(word)}">
       ${options}
     </div>
   </div>`;
