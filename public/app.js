@@ -145,12 +145,20 @@ async function convert() {
   try {
     // Convert from the active language to the other two
     const otherLangs = LANGS.filter(l => l !== fromLang);
-    const conversions = await Promise.all(
+    const conversionResults = await Promise.allSettled(
       otherLangs.map(async targetLang => {
         const data = await fetchConversion(input, fromLang, targetLang);
         return { targetLang, data };
       })
     );
+    const conversions = conversionResults
+      .filter(result => result.status === 'fulfilled')
+      .map(result => result.value);
+
+    if (conversions.length === 0) {
+      const firstFailure = conversionResults.find(result => result.status === 'rejected');
+      throw (firstFailure?.reason || new Error('Conversion failed — please try again.'));
+    }
 
     const conversionByTarget = {};
     conversions.forEach(row => { conversionByTarget[row.targetLang] = row.data; });

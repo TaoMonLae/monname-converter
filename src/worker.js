@@ -174,7 +174,7 @@ async function fetchPrefixGroups(env, remainder, fromLang, toLang) {
        FROM aliases a
        JOIN names n ON n.id = a.name_id
        WHERE a.language = ?
-         AND ? LIKE (a.alias || '%')`
+         AND substr(?, 1, length(a.alias)) = a.alias`
     ).bind(fromLang, normalizedRemainder).all(),
     env.DB.prepare(
       `SELECT s.source_text,
@@ -186,7 +186,7 @@ async function fetchPrefixGroups(env, remainder, fromLang, toLang) {
        JOIN segment_variants sv ON sv.segment_id = s.id
        WHERE s.source_lang = ?
          AND sv.target_lang = ?
-         AND ? LIKE (s.source_text || '%')`
+         AND substr(?, 1, length(s.source_text)) = s.source_text`
     ).bind(fromLang, toLang, normalizedRemainder).all(),
   ]);
 
