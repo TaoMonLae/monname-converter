@@ -1,70 +1,105 @@
 const API_BASE = '/api';
 
 const LANG_LABELS = { burmese: 'Burmese', mon: 'Mon', english: 'English' };
-const LANGS = ['burmese', 'mon', 'english'];
+const LANGS = ['mon', 'burmese', 'english'];
 
-let fromLang = 'burmese';
-let toLang = 'mon';
-let wordResults = [];
+// Input elements for each language
+const monInput     = document.getElementById('monInput');
+const burmeseInput = document.getElementById('burmeseInput');
+const englishInput = document.getElementById('englishInput');
+
+const colMon     = document.getElementById('colMon');
+const colBurmese = document.getElementById('colBurmese');
+const colEnglish = document.getElementById('colEnglish');
+
+const inputsByLang = { mon: monInput, burmese: burmeseInput, english: englishInput };
+const colsByLang   = { mon: colMon,   burmese: colBurmese,   english: colEnglish };
+
+const clearBtn     = document.getElementById('clearBtn');
+const convertBtn   = document.getElementById('convertBtn');
+
+const wordTokensSection = document.getElementById('wordTokensSection');
+const wordTokensDiv     = document.getElementById('wordTokens');
+const resultSection     = document.getElementById('resultSection'); // hidden stub
+
+const copyMonBtn     = document.getElementById('copyMonBtn');
+const copyBurmeseBtn = document.getElementById('copyBurmeseBtn');
+const copyEnglishBtn = document.getElementById('copyEnglishBtn');
+
+const downloadCardBtn = document.getElementById('downloadCardBtn');
+const suggestWordBtn  = document.getElementById('suggestWordBtn');
+const historyList     = document.getElementById('historyList');
+const converterStatus = document.getElementById('converterStatus');
+
+const suggestModal      = document.getElementById('suggestModal');
+const closeSuggestModal = document.getElementById('closeSuggestModal');
+const cancelSuggestBtn  = document.getElementById('cancelSuggestBtn');
+const submitSuggestBtn  = document.getElementById('submitSuggestBtn');
+const suggestAlert      = document.getElementById('suggestAlert');
+
+// State
+let fromLang       = 'burmese';   // which box the user last typed in
+let wordResults    = [];
 let conversionMode = '';
-let columnResults = { mon: '', burmese: '', english: '' };
-let history = [];
+let columnResults  = { mon: '', burmese: '', english: '' };
 
+let history = [];
 try { history = JSON.parse(localStorage.getItem('converter-history') || '[]'); }
 catch (e) { history = []; }
 
-const nameInput = document.getElementById('nameInput');
-const clearBtn = document.getElementById('clearBtn');
-const convertBtn = document.getElementById('convertBtn');
-const wordTokensSection = document.getElementById('wordTokensSection');
-const wordTokensDiv = document.getElementById('wordTokens');
-const resultSection = document.getElementById('resultSection');
-const resultMonEl = document.getElementById('resultMon');
-const resultBurmeseEl = document.getElementById('resultBurmese');
-const resultEnglishEl = document.getElementById('resultEnglish');
-const nameVariantSection = null;
-const nameVariantList = null;
-const copyMonBtn = document.getElementById('copyMonBtn');
-const copyBurmeseBtn = document.getElementById('copyBurmeseBtn');
-const copyEnglishBtn = document.getElementById('copyEnglishBtn');
-const downloadCardBtn = document.getElementById('downloadCardBtn');
-const suggestWordBtn = document.getElementById('suggestWordBtn');
-const historyList = document.getElementById('historyList');
-const converterStatus = document.getElementById('converterStatus');
-
-const suggestModal = document.getElementById('suggestModal');
-const closeSuggestModal = document.getElementById('closeSuggestModal');
-const cancelSuggestBtn = document.getElementById('cancelSuggestBtn');
-const submitSuggestBtn = document.getElementById('submitSuggestBtn');
-const suggestAlert = document.getElementById('suggestAlert');
-
 renderHistory();
-setTimeout(() => { converterStatus.textContent = ''; }, 400);
+setTimeout(() => { if (converterStatus) converterStatus.textContent = ''; }, 400);
 
-nameInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); convert(); }
+// ── Wire up each input box ────────────────────────────────────
+
+LANGS.forEach(lang => {
+  const el = inputsByLang[lang];
+  if (!el) return;
+
+  // Enter key → convert (Shift+Enter inserts newline)
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      fromLang = lang;
+      markActiveColumn(lang);
+      convert();
+    }
+  });
+
+  // Focus → record which language is being typed
+  el.addEventListener('focus', () => {
+    fromLang = lang;
+    markActiveColumn(lang);
+  });
 });
 
 clearBtn.addEventListener('click', clearAll);
-convertBtn.addEventListener('click', convert);
+convertBtn.addEventListener('click', () => {
+  // Determine source: find the box that has content and was last focused
+  // Fall back to whichever box has content
+  const active = LANGS.find(l => inputsByLang[l] === document.activeElement)
+    || LANGS.find(l => inputsByLang[l]?.value.trim())
+    || fromLang;
+  fromLang = active;
+  convert();
+});
 
-copyMonBtn?.addEventListener('click', () => copyColumn('mon', copyMonBtn));
+copyMonBtn?.addEventListener('click',     () => copyColumn('mon',     copyMonBtn));
 copyBurmeseBtn?.addEventListener('click', () => copyColumn('burmese', copyBurmeseBtn));
 copyEnglishBtn?.addEventListener('click', () => copyColumn('english', copyEnglishBtn));
 
-downloadCardBtn.addEventListener('click', openDownloadCard);
+downloadCardBtn?.addEventListener('click', openDownloadCard);
+suggestWordBtn?.addEventListener('click', openSuggestModal);
+closeSuggestModal?.addEventListener('click', closeSuggest);
+cancelSuggestBtn?.addEventListener('click', closeSuggest);
+suggestModal?.addEventListener('click', e => { if (e.target === suggestModal) closeSuggest(); });
 
-suggestWordBtn.addEventListener('click', openSuggestModal);
-closeSuggestModal.addEventListener('click', closeSuggest);
-cancelSuggestBtn.addEventListener('click', closeSuggest);
-suggestModal.addEventListener('click', e => { if (e.target === suggestModal) closeSuggest(); });
-
-submitSuggestBtn.addEventListener('click', async () => {
-  const mon = document.getElementById('sug-mon').value.trim();
-  const burmese = document.getElementById('sug-burmese').value.trim();
-  const english = document.getElementById('sug-english').value.trim();
-  const meaning = document.getElementById('sug-meaning').value.trim();
-  const gender = document.getElementById('sug-gender').value;
+submitSuggestBtn?.addEventListener('click', async () => {
+  const mon      = document.getElementById('sug-mon').value.trim();
+  const burmese  = document.getElementById('sug-burmese').value.trim();
+  const english  = document.getElementById('sug-english').value.trim();
+  const meaning  = document.getElementById('sug-meaning').value.trim();
+  const gender   = document.getElementById('sug-gender').value;
   const submitted_by = document.getElementById('sug-submitter').value.trim();
 
   if (!mon && !burmese && !english) {
@@ -83,7 +118,6 @@ submitSuggestBtn.addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Submission failed');
-
     showSuggestAlert(data.message || 'Suggestion submitted! Thank you.', 'success');
     clearSuggestForm();
   } catch (e) {
@@ -94,8 +128,10 @@ submitSuggestBtn.addEventListener('click', async () => {
   }
 });
 
+// ── Core conversion ───────────────────────────────────────────
+
 async function convert() {
-  const input = nameInput.value.trim();
+  const input = inputsByLang[fromLang]?.value.trim();
   if (!input) return;
 
   convertBtn.disabled = true;
@@ -104,14 +140,13 @@ async function convert() {
 
   wordTokensSection.classList.remove('hidden');
   wordTokensDiv.innerHTML = '<div class="spinner"></div>';
-  resultSection.classList.add('hidden');
-  downloadCardBtn.classList.add('hidden');
+  downloadCardBtn?.classList.add('hidden');
 
   try {
-    const detected = await detectBestSource(input);
-    fromLang = detected.fromLang;
+    // Convert from the active language to the other two
+    const otherLangs = LANGS.filter(l => l !== fromLang);
     const conversions = await Promise.all(
-      LANGS.filter(lang => lang !== fromLang).map(async targetLang => {
+      otherLangs.map(async targetLang => {
         const data = await fetchConversion(input, fromLang, targetLang);
         return { targetLang, data };
       })
@@ -119,24 +154,39 @@ async function convert() {
 
     const conversionByTarget = {};
     conversions.forEach(row => { conversionByTarget[row.targetLang] = row.data; });
-    wordResults = detected.data.segments || [];
-    conversionMode = detected.data.mode || '';
+
+    // Use segments from whichever conversion gave us the most info
+    const firstConv = conversions[0]?.data;
+    wordResults    = firstConv?.segments || [];
+    conversionMode = firstConv?.mode    || '';
 
     columnResults = {
-      mon: fromLang === 'mon' ? input : (conversionByTarget.mon?.assembled || input),
-      burmese: fromLang === 'burmese' ? input : (conversionByTarget.burmese?.assembled || input),
-      english: fromLang === 'english' ? input : (conversionByTarget.english?.assembled || input),
+      mon:     fromLang === 'mon'     ? input : (conversionByTarget.mon?.assembled     || ''),
+      burmese: fromLang === 'burmese' ? input : (conversionByTarget.burmese?.assembled || ''),
+      english: fromLang === 'english' ? input : (conversionByTarget.english?.assembled || ''),
     };
 
-    const needsBreakdown = wordResults.length > 1 || wordResults.some(wr => !wr.matched || (wr.options || []).length > 1);
+    // Populate the other two boxes with results
+    LANGS.forEach(lang => {
+      if (lang !== fromLang) {
+        const el = inputsByLang[lang];
+        if (el) el.value = columnResults[lang];
+        colsByLang[lang]?.classList.add('input-column--result');
+      } else {
+        colsByLang[lang]?.classList.remove('input-column--result');
+      }
+    });
+
+    const needsBreakdown = wordResults.length > 1
+      || wordResults.some(wr => !wr.matched || (wr.options || []).length > 1);
+
     renderWordTokens();
-    renderResult();
     wordTokensSection.classList.toggle('hidden', !needsBreakdown);
 
-    downloadCardBtn.classList.remove('hidden');
+    downloadCardBtn?.classList.remove('hidden');
     saveHistory(input, columnResults);
     renderHistory();
-    setStatus(`Detected source: ${LANG_LABELS[fromLang]}`);
+    setStatus(`Source: ${LANG_LABELS[fromLang]}`);
   } catch (e) {
     wordTokensDiv.innerHTML = `<div class="alert alert--danger">${escHtml(e.message || 'Conversion failed — please try again.')}</div>`;
     wordTokensSection.classList.remove('hidden');
@@ -147,63 +197,20 @@ async function convert() {
   }
 }
 
-function getResultText() {
-  return [columnResults.mon, columnResults.burmese, columnResults.english].filter(Boolean).join(' | ');
-}
-
-function renderResult() {
-  if (resultMonEl) resultMonEl.textContent = columnResults.mon || '';
-  if (resultBurmeseEl) resultBurmeseEl.textContent = columnResults.burmese || '';
-  if (resultEnglishEl) resultEnglishEl.textContent = columnResults.english || '';
-
-  resultSection.classList.remove('hidden');
-}
-
-function renderNameVariants() {
-  if (!nameVariantSection || !nameVariantList) return;
-  const showVariants = wordResults.length === 1
-    && wordResults[0].matched
-    && Array.isArray(wordResults[0].options)
-    && wordResults[0].options.length > 1
-    && (conversionMode === 'exact_name' || conversionMode === 'alias_name');
-
-  if (!showVariants) {
-    nameVariantSection.classList.add('hidden');
-    nameVariantList.innerHTML = '';
-    return;
-  }
-
-  const wr = wordResults[0];
-  const selectedIndex = wr.selectedIndex || 0;
-  const srcClass = langClass(fromLang);
-  const tgtClass = langClass(toLang);
-
-  nameVariantList.innerHTML = wr.options.map((option, idx) => {
-    const src = option[fromLang] || wr.source || '';
-    const tgt = option[toLang] || wr.source || '';
-    const meaning = option.meaning ? ` — ${String(option.meaning).substring(0, 50)}` : '';
-    return `<button
-      type="button"
-      class="name-variant-btn${idx === selectedIndex ? ' active' : ''}"
-      data-variant-index="${idx}">
-      <span class="name-variant-btn__target ${tgtClass}">${escHtml(tgt)}</span>
-      <span class="name-variant-btn__source ${srcClass}">${escHtml(src)}</span>
-      ${meaning ? `<span class="name-variant-btn__meaning">${escHtml(meaning)}</span>` : ''}
-    </button>`;
-  }).join('');
-
-  nameVariantList.querySelectorAll('.name-variant-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.variantIndex, 10);
-      wordResults[0].selectedIndex = idx;
-      renderNameVariants();
-      renderResult();
-      saveHistory(nameInput.value.trim(), getResultText());
-    });
+function markActiveColumn(lang) {
+  LANGS.forEach(l => {
+    const col = colsByLang[l];
+    if (!col) return;
+    if (l === lang) {
+      col.classList.add('input-column--active');
+      col.classList.remove('input-column--result');
+    } else {
+      col.classList.remove('input-column--active');
+    }
   });
-
-  nameVariantSection.classList.remove('hidden');
 }
+
+// ── Word tokens rendering ─────────────────────────────────────
 
 function renderWordTokens() {
   const tokens = wordResults.map((wr, i) => renderToken(wr, i)).join('');
@@ -214,18 +221,46 @@ function renderWordTokens() {
       const wi = parseInt(btn.dataset.wordIndex, 10);
       const mi = parseInt(btn.dataset.matchIndex, 10);
       wordResults[wi].selectedIndex = mi;
+      // Rebuild assembled results from updated selections
+      rebuildFromWordTokens();
       renderWordTokens();
-      renderResult();
     });
   });
 }
 
+function rebuildFromWordTokens() {
+  // Re-assemble target columns based on selected variants
+  const toLang1 = LANGS.filter(l => l !== fromLang)[0];
+  const toLang2 = LANGS.filter(l => l !== fromLang)[1];
+
+  function assemble(lang) {
+    return wordResults.map(wr => {
+      const opts = Array.isArray(wr.options) ? wr.options : [];
+      const idx  = wr.selectedIndex || 0;
+      const opt  = opts[idx] || opts[0];
+      return opt ? (opt[lang] || '') : (wr.source || '');
+    }).join('');
+  }
+
+  if (toLang1) columnResults[toLang1] = assemble(toLang1);
+  if (toLang2) columnResults[toLang2] = assemble(toLang2);
+
+  LANGS.forEach(lang => {
+    if (lang !== fromLang) {
+      const el = inputsByLang[lang];
+      if (el) el.value = columnResults[lang];
+    }
+  });
+}
+
 function renderToken(wr, i) {
-  const sourceText = wr.source || '';
-  const options = Array.isArray(wr.options) ? wr.options : [];
+  const sourceText    = wr.source || '';
+  const options       = Array.isArray(wr.options) ? wr.options : [];
   const selectedIndex = wr.selectedIndex || 0;
-  const srcClass = langClass(fromLang);
-  const tgtClass = langClass(toLang);
+  const srcClass      = langClass(fromLang);
+  // Show the first target language in the breakdown for context
+  const displayTarget = LANGS.find(l => l !== fromLang) || 'mon';
+  const tgtClass      = langClass(displayTarget);
 
   if (options.length === 0 || !wr.matched) {
     return `<div class="word-token word-token--unknown">
@@ -235,8 +270,8 @@ function renderToken(wr, i) {
   }
 
   const selected = options[selectedIndex] || options[0];
-  const src = selected[fromLang] || sourceText;
-  const tgt = selected[toLang] || sourceText;
+  const src = selected[fromLang]     || sourceText;
+  const tgt = selected[displayTarget] || sourceText;
 
   if (options.length === 1) {
     return `<div class="word-token word-token--single">
@@ -247,8 +282,8 @@ function renderToken(wr, i) {
   }
 
   const chips = options.map((option, idx) => {
-    const oSrc = option[fromLang] || sourceText;
-    const oTgt = option[toLang] || sourceText;
+    const oSrc     = option[fromLang]      || sourceText;
+    const oTgt     = option[displayTarget] || sourceText;
     const oMeaning = option.meaning ? String(option.meaning).substring(0, 40) : '';
 
     return `<button
@@ -276,8 +311,8 @@ function renderToken(wr, i) {
 // ── Download Card (Save as Image) ─────────────────────────────
 
 function openDownloadCard() {
-  const input = nameInput.value.trim();
-  const result = columnResults[toLang] || columnResults.mon || '';
+  const input  = inputsByLang[fromLang]?.value.trim() || '';
+  const result = columnResults.mon || columnResults.burmese || columnResults.english || '';
 
   const modal = document.createElement('div');
   modal.className = 'modal-backdrop open';
@@ -303,8 +338,8 @@ function openDownloadCard() {
           <div class="name-card-preview__lang">${escHtml(LANG_LABELS[fromLang])}</div>
           <div class="name-card-preview__name ${langClass(fromLang)}">${escHtml(input)}</div>
           <div class="name-card-preview__arrow">↓</div>
-          <div class="name-card-preview__lang">${escHtml(LANG_LABELS[toLang])}</div>
-          <div class="name-card-preview__name ${langClass(toLang)} name-card-preview__accent">${escHtml(result)}</div>
+          <div class="name-card-preview__lang">Mon / Burmese / English</div>
+          <div class="name-card-preview__name name-card-preview__accent">${escHtml(result)}</div>
         </div>
         <p class="name-card-hint">The card will be saved as a PNG image.</p>
       </div>
@@ -317,16 +352,16 @@ function openDownloadCard() {
     </div>`;
 
   document.body.appendChild(modal);
-  const preview = modal.querySelector('#_cardPreview');
-  const bgColorInput = modal.querySelector('#_cardBgColor');
-  const bgImageInput = modal.querySelector('#_cardBgImage');
+  const preview         = modal.querySelector('#_cardPreview');
+  const bgColorInput    = modal.querySelector('#_cardBgColor');
+  const bgImageInput    = modal.querySelector('#_cardBgImage');
   const removeBgImageBtn = modal.querySelector('#_removeCardBgImage');
-  let customBgImage = '';
+  let customBgImage    = '';
   let customBgImageObj = null;
 
   function updateCardPreview() {
-    preview.style.backgroundColor = bgColorInput.value;
-    preview.style.backgroundImage = customBgImage
+    preview.style.backgroundColor  = bgColorInput.value;
+    preview.style.backgroundImage  = customBgImage
       ? `linear-gradient(rgba(15, 23, 42, 0.28), rgba(15, 23, 42, 0.35)), url('${customBgImage}')`
       : '';
   }
@@ -347,7 +382,7 @@ function openDownloadCard() {
   });
 
   removeBgImageBtn.addEventListener('click', () => {
-    customBgImage = '';
+    customBgImage    = '';
     customBgImageObj = null;
     bgImageInput.value = '';
     updateCardPreview();
@@ -355,55 +390,43 @@ function openDownloadCard() {
 
   updateCardPreview();
   modal.querySelector('.modal__close').onclick = () => modal.remove();
-  modal.querySelector('#_closeCardBtn').onclick = () => modal.remove();
+  modal.querySelector('#_closeCardBtn').onclick  = () => modal.remove();
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-
-  modal.querySelector('#_saveCardBtn').onclick = () => {
+  modal.querySelector('#_saveCardBtn').onclick   = () => {
     saveCardAsImage(preview, bgColorInput.value, customBgImageObj, modal);
   };
 }
 
 function saveCardAsImage(previewEl, bgColor, bgImageObj, modal) {
-  const saveBtn = modal.querySelector('#_saveCardBtn');
+  const saveBtn      = modal.querySelector('#_saveCardBtn');
   const saveBtnLabel = modal.querySelector('#_saveCardBtnLabel');
   saveBtnLabel.textContent = 'Saving…';
   saveBtn.disabled = true;
 
-  // Card dimensions (fixed size for consistent output)
-  const W = 600;
-  const H = 340;
+  const W = 600, H = 340;
   const scale = window.devicePixelRatio || 2;
-
   const canvas = document.createElement('canvas');
-  canvas.width = W * scale;
+  canvas.width  = W * scale;
   canvas.height = H * scale;
   const ctx = canvas.getContext('2d');
   ctx.scale(scale, scale);
 
-  // Draw background
   ctx.fillStyle = bgColor || '#1a3d2b';
   ctx.fillRect(0, 0, W, H);
 
   function drawContents() {
-    // Overlay gradient if bg image
     if (bgImageObj) {
-      // Draw image cover
       const imgAspect = bgImageObj.width / bgImageObj.height;
       const canvasAspect = W / H;
       let sw, sh, sx, sy;
       if (imgAspect > canvasAspect) {
-        sh = bgImageObj.height;
-        sw = sh * canvasAspect;
-        sx = (bgImageObj.width - sw) / 2;
-        sy = 0;
+        sh = bgImageObj.height; sw = sh * canvasAspect;
+        sx = (bgImageObj.width - sw) / 2; sy = 0;
       } else {
-        sw = bgImageObj.width;
-        sh = sw / canvasAspect;
-        sx = 0;
-        sy = (bgImageObj.height - sh) / 2;
+        sw = bgImageObj.width; sh = sw / canvasAspect;
+        sx = 0; sy = (bgImageObj.height - sh) / 2;
       }
       ctx.drawImage(bgImageObj, sx, sy, sw, sh, 0, 0, W, H);
-      // Dark overlay
       const grd = ctx.createLinearGradient(0, 0, 0, H);
       grd.addColorStop(0, 'rgba(15,23,42,0.28)');
       grd.addColorStop(1, 'rgba(15,23,42,0.45)');
@@ -412,68 +435,57 @@ function saveCardAsImage(previewEl, bgColor, bgImageObj, modal) {
     }
 
     const cx = W / 2;
-    const fromText = previewEl.querySelector(`.name-card-preview__name:first-of-type`)?.textContent || '';
+    const fromText     = previewEl.querySelector('.name-card-preview__name:not(.name-card-preview__accent)')?.textContent || '';
     const fromLangLabel = previewEl.querySelectorAll('.name-card-preview__lang')[0]?.textContent || '';
-    const toText = previewEl.querySelector('.name-card-preview__accent')?.textContent || '';
-    const toLangLabel = previewEl.querySelectorAll('.name-card-preview__lang')[1]?.textContent || '';
+    const toText       = previewEl.querySelector('.name-card-preview__accent')?.textContent || '';
+    const toLangLabel  = previewEl.querySelectorAll('.name-card-preview__lang')[1]?.textContent || '';
 
-    // From lang label
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.font = '600 11px "DM Sans", sans-serif';
-    ctx.letterSpacing = '2px';
     ctx.fillText(fromLangLabel.toUpperCase(), cx, 72);
 
-    // From name
     ctx.fillStyle = 'rgba(255,255,255,0.95)';
     ctx.font = 'bold 36px "Padauk", "Noto Sans Mon", serif';
     ctx.fillText(fromText, cx, 118);
 
-    // Arrow
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '24px sans-serif';
     ctx.fillText('↓', cx, 160);
 
-    // To lang label
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.font = '600 11px "DM Sans", sans-serif';
     ctx.fillText(toLangLabel.toUpperCase(), cx, 200);
 
-    // To name (accent color)
     ctx.fillStyle = '#e8b84b';
     ctx.font = 'bold 40px "Padauk", "Noto Sans Mon", serif';
     ctx.fillText(toText, cx, 254);
 
-    // Footer branding
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font = '500 12px "DM Sans", sans-serif';
     ctx.fillText('Mon Names Converter', cx, H - 22);
 
-    // Save
     try {
       const link = document.createElement('a');
-      const filename = `mon-name-${(toText || 'card').replace(/\s+/g, '-').substring(0, 30)}.png`;
-      link.download = filename;
+      link.download = `mon-name-${(toText || 'card').replace(/\s+/g, '-').substring(0, 30)}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-    } catch (err) {
-      alert('Could not save image. Try right-clicking the preview and saving it manually.');
+    } catch {
+      alert('Could not save image. Try right-clicking the preview and saving manually.');
     }
 
     saveBtnLabel.textContent = '✓ Saved!';
-    setTimeout(() => {
-      saveBtnLabel.textContent = '⬇ Save Image';
-      saveBtn.disabled = false;
-    }, 2000);
+    setTimeout(() => { saveBtnLabel.textContent = '⬇ Save Image'; saveBtn.disabled = false; }, 2000);
   }
 
-  // Ensure fonts are loaded before drawing
-  if (document.fonts && document.fonts.ready) {
+  if (document.fonts?.ready) {
     document.fonts.ready.then(drawContents);
   } else {
     setTimeout(drawContents, 300);
   }
 }
+
+// ── Suggest modal ─────────────────────────────────────────────
 
 function openSuggestModal() {
   const unmatched = wordResults
@@ -488,7 +500,7 @@ function openSuggestModal() {
   }
 
   suggestModal.classList.add('open');
-  suggestModal.querySelector('input').focus();
+  suggestModal.querySelector('input')?.focus();
 }
 
 function closeSuggest() {
@@ -514,8 +526,10 @@ function hideSuggestAlert() {
   suggestAlert.style.display = 'none';
 }
 
+// ── History ───────────────────────────────────────────────────
+
 function saveHistory(input, result) {
-  const entry = { input, result, from: fromLang, to: 'all', ts: Date.now() };
+  const entry = { input, result, from: fromLang, ts: Date.now() };
   history = [entry, ...history.filter(h => !(h.input === input && h.from === fromLang))].slice(0, 10);
   try { localStorage.setItem('converter-history', JSON.stringify(history)); }
   catch (e) {}
@@ -528,65 +542,60 @@ function renderHistory() {
     return;
   }
 
-  historyList.innerHTML = history.map((h, i) => `
-    <div class="history-item" data-hi="${i}">
+  historyList.innerHTML = history.map((h, i) => {
+    const result = h.result || {};
+    const preview = typeof result === 'string'
+      ? result
+      : [result.mon, result.burmese, result.english].filter(Boolean).join(' · ');
+    return `<div class="history-item" data-hi="${i}">
       <span class="history-item__from ${langClass(h.from)}">${escHtml(h.input)}</span>
       <span class="history-item__arrow">→</span>
-      <span class="history-item__to">${escHtml(typeof h.result === 'string' ? h.result : ((h.result && h.result.mon) || ''))}</span>
-    </div>`).join('');
+      <span class="history-item__to">${escHtml(preview)}</span>
+    </div>`;
+  }).join('');
 
   historyList.querySelectorAll('.history-item').forEach(item => {
     item.addEventListener('click', () => {
       const h = history[parseInt(item.dataset.hi, 10)];
       if (!h) return;
-
-      nameInput.value = h.input;
+      fromLang = h.from || 'burmese';
+      const el = inputsByLang[fromLang];
+      if (el) el.value = h.input;
+      // Clear the other boxes before converting
+      LANGS.forEach(l => { if (l !== fromLang && inputsByLang[l]) inputsByLang[l].value = ''; });
+      markActiveColumn(fromLang);
       convert();
     });
   });
 }
 
+// ── Utilities ─────────────────────────────────────────────────
+
 function clearAll() {
-  nameInput.value = '';
-  wordResults = [];
+  LANGS.forEach(lang => {
+    const el = inputsByLang[lang];
+    if (el) el.value = '';
+    colsByLang[lang]?.classList.remove('input-column--active', 'input-column--result');
+  });
+  wordResults    = [];
   conversionMode = '';
-  columnResults = { mon: '', burmese: '', english: '' };
+  columnResults  = { mon: '', burmese: '', english: '' };
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
-  resultSection.classList.add('hidden');
-  downloadCardBtn.classList.add('hidden');
+  downloadCardBtn?.classList.add('hidden');
   setStatus('');
-}
-
-function matchScore(data) {
-  const segments = Array.isArray(data?.segments) ? data.segments : [];
-  return segments.reduce((sum, s) => sum + (s.matched ? (s.source || '').length : 0), 0);
 }
 
 async function fetchConversion(input, from, to) {
   const params = new URLSearchParams({ q: input, from, to });
-  const res = await fetch(`${API_BASE}/convert?${params}`);
-  const data = await res.json();
+  const res    = await fetch(`${API_BASE}/convert?${params}`);
+  const data   = await res.json();
   if (!res.ok) throw new Error(data.error || 'Conversion failed');
   return data;
 }
 
-async function detectBestSource(input) {
-  const candidates = await Promise.all(LANGS.map(async lang => {
-    const fallbackTarget = lang === 'mon' ? 'burmese' : 'mon';
-    const data = await fetchConversion(input, lang, fallbackTarget);
-    return { fromLang: lang, data, score: matchScore(data) };
-  }));
-
-  candidates.sort((a, b) =>
-    b.score - a.score
-    || (b.data.segments?.length || 0) - (a.data.segments?.length || 0)
-  );
-  return candidates[0];
-}
-
 function copyColumn(lang, btn) {
-  const text = columnResults[lang];
+  const text = columnResults[lang] || inputsByLang[lang]?.value || '';
   if (!text) return;
   (navigator.clipboard
     ? navigator.clipboard.writeText(text)
@@ -598,6 +607,7 @@ function copyColumn(lang, btn) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
+    return Promise.resolve();
   }).then(() => {
     const old = btn.textContent;
     btn.textContent = 'Copied!';
@@ -610,7 +620,7 @@ function setStatus(msg) {
 }
 
 function langClass(lang) {
-  if (lang === 'mon') return 'mon';
+  if (lang === 'mon')     return 'mon';
   if (lang === 'burmese') return 'bur';
   return '';
 }
@@ -625,7 +635,7 @@ function escHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// ── Night mode toggle ─────────────────────────────────────────
+// ── Theme toggle ──────────────────────────────────────────────
 (function initTheme() {
   const saved = localStorage.getItem('theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
@@ -641,7 +651,7 @@ function escHtml(str) {
 
   btn.addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme') || 'dark';
-    const next = current === 'dark' ? 'light' : 'dark';
+    const next    = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('theme', next);
     updateBtn(next);
