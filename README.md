@@ -132,6 +132,7 @@ App runs at `http://localhost:8787`.
 
 ### Public Endpoints
 
+- `GET /api/convert?q=<full-name>&from=<mon|burmese|english>&to=<mon|burmese|english>`
 - `GET /api/search?q=<query>&lang=<all|mon|burmese|english>`
 - `POST /api/suggestions`
 
