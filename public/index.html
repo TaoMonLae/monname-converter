@@ -39,7 +39,7 @@
       border: 1px solid var(--border, #334155);
       box-shadow: 0 20px 48px rgba(6, 12, 28, 0.6);
       width: 100%;
-      max-width: 560px;
+      max-width: 820px;
       padding: var(--space-xl);
       position: relative;
       z-index: 1;
@@ -138,13 +138,58 @@
       display: block;
     }
 
+    /* Three-box input grid */
+    .input-columns {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+      margin-bottom: var(--space-md);
+    }
+
+    .input-column {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .input-column--active .name-input {
+      border-color: #22d3ee;
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+    }
+
+    [data-theme="light"] .input-column--active .name-input {
+      border-color: var(--primary-light);
+      box-shadow: 0 0 0 2px rgba(26, 61, 43, 0.1);
+    }
+
+    .input-column--result .name-input {
+      opacity: 0.82;
+      font-style: normal;
+    }
+
+    .input-col-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-xs);
+    }
+
+    .input-col-header .input-label {
+      margin-bottom: 0;
+    }
+
+    @media (max-width: 600px) {
+      .input-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .name-input {
       width: 100%;
-      min-height: 72px;
-      font-size: 1.1rem;
+      min-height: 68px;
+      font-size: 1rem;
       border: 1px solid var(--border, #334155);
       border-radius: var(--radius-sm);
-      padding: var(--space-md);
+      padding: var(--space-sm) var(--space-md);
       resize: vertical;
       outline: none;
       font-family: var(--font-body);
@@ -152,6 +197,7 @@
       background: var(--input-bg, #1e293b);
       transition: border-color var(--duration), box-shadow var(--duration);
       line-height: 1.5;
+      box-sizing: border-box;
     }
 
     [data-theme="light"] .name-input {
@@ -729,20 +775,59 @@
     <h1 class="converter-title">Name Converter</h1>
     <p class="converter-status" id="converterStatus">Ready</p>
 
-    <div class="mode-note">Three-column mode: Mon • Burmese • English (auto-detect input language)</div>
+    <div class="mode-note">Type in any box (Mon, Burmese, or English) and see all translations at once</div>
 
-    <!-- Name input -->
-    <label class="input-label" for="nameInput">ချူစုတ်် ယၟုညိ</label>
-    <textarea
-      id="nameInput"
-      class="name-input"
-      placeholder="ဥပမာ အောင်မင်း"
-      rows="2"
-      spellcheck="false"
-      autocorrect="off"
-      autocomplete="off"
-      maxlength="200"
-    ></textarea>
+    <!-- Three input boxes -->
+    <div class="input-columns">
+      <div class="input-column" id="colMon">
+        <div class="input-col-header">
+          <label class="input-label" for="monInput">Mon · မန်</label>
+          <button class="copy-col-btn" id="copyMonBtn" title="Copy Mon">Copy</button>
+        </div>
+        <textarea
+          id="monInput"
+          class="name-input mon"
+          placeholder="ယၟု မန် …"
+          rows="3"
+          spellcheck="false"
+          autocorrect="off"
+          autocomplete="off"
+          maxlength="200"
+        ></textarea>
+      </div>
+      <div class="input-column" id="colBurmese">
+        <div class="input-col-header">
+          <label class="input-label" for="burmeseInput">Burmese · မြန်မာ</label>
+          <button class="copy-col-btn" id="copyBurmeseBtn" title="Copy Burmese">Copy</button>
+        </div>
+        <textarea
+          id="burmeseInput"
+          class="name-input bur"
+          placeholder="မြန်မာ နာမည် …"
+          rows="3"
+          spellcheck="false"
+          autocorrect="off"
+          autocomplete="off"
+          maxlength="200"
+        ></textarea>
+      </div>
+      <div class="input-column" id="colEnglish">
+        <div class="input-col-header">
+          <label class="input-label" for="englishInput">English</label>
+          <button class="copy-col-btn" id="copyEnglishBtn" title="Copy English">Copy</button>
+        </div>
+        <textarea
+          id="englishInput"
+          class="name-input"
+          placeholder="e.g. Aung Min"
+          rows="3"
+          spellcheck="false"
+          autocorrect="off"
+          autocomplete="off"
+          maxlength="200"
+        ></textarea>
+      </div>
+    </div>
 
     <!-- Buttons -->
     <div class="converter-actions">
@@ -756,24 +841,8 @@
       <div id="wordTokens" class="word-tokens-list"></div>
     </div>
 
-    <!-- Result -->
-    <div id="resultSection" class="result-section hidden">
-      <label class="input-label">Results in all languages</label>
-      <div class="result-columns">
-        <div class="result-column">
-          <div class="result-column__header">Mon <button class="copy-col-btn" id="copyMonBtn">Copy</button></div>
-          <div id="resultMon" class="result-column__value mon"></div>
-        </div>
-        <div class="result-column">
-          <div class="result-column__header">Burmese <button class="copy-col-btn" id="copyBurmeseBtn">Copy</button></div>
-          <div id="resultBurmese" class="result-column__value bur"></div>
-        </div>
-        <div class="result-column">
-          <div class="result-column__header">English <button class="copy-col-btn" id="copyEnglishBtn">Copy</button></div>
-          <div id="resultEnglish" class="result-column__value"></div>
-        </div>
-      </div>
-    </div>
+    <!-- Result section (hidden, kept for JS compatibility) -->
+    <div id="resultSection" class="hidden" style="display:none!important;"></div>
 
     <!-- Download Card -->
     <button class="download-card-btn hidden" id="downloadCardBtn">
