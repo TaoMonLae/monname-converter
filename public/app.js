@@ -20,7 +20,6 @@ const convertBtn   = document.getElementById('convertBtn');
 
 const wordTokensSection = document.getElementById('wordTokensSection');
 const wordTokensDiv     = document.getElementById('wordTokens');
-const resultSection     = document.getElementById('resultSection'); // hidden stub
 
 const copyMonBtn     = document.getElementById('copyMonBtn');
 const copyBurmeseBtn = document.getElementById('copyBurmeseBtn');
@@ -41,7 +40,6 @@ const suggestAlert      = document.getElementById('suggestAlert');
 // State
 let fromLang       = 'burmese';   // which box the user last typed in
 let wordResults    = [];
-let conversionMode = '';
 let columnResults  = { mon: '', burmese: '', english: '' };
 
 let history = [];
@@ -167,7 +165,6 @@ async function convert() {
     // Use segments from whichever conversion gave us the most info
     const firstConv = conversions[0]?.data;
     wordResults    = firstConv?.segments || [];
-    conversionMode = firstConv?.mode    || '';
 
     columnResults = {
       mon:     fromLang === 'mon'     ? input : (conversionByTarget.mon?.assembled     || ''),
@@ -241,8 +238,7 @@ function renderWordTokens() {
 
 function rebuildFromWordTokens() {
   // Re-assemble target columns based on selected variants
-  const toLang1 = LANGS.filter(l => l !== fromLang)[0];
-  const toLang2 = LANGS.filter(l => l !== fromLang)[1];
+  const [toLang1, toLang2] = LANGS.filter(l => l !== fromLang);
 
   function assemble(lang) {
     // Preserve separatorBefore so variant changes keep original spacing/punctuation between segments.
@@ -608,7 +604,6 @@ function clearAll() {
     colsByLang[lang]?.classList.remove('input-column--active', 'input-column--result');
   });
   wordResults    = [];
-  conversionMode = '';
   columnResults  = { mon: '', burmese: '', english: '' };
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
