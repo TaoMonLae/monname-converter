@@ -79,10 +79,29 @@ function randomToken() {
 
 function parseAliases(raw) {
   if (!raw) return [];
-  return raw.split('||').map(part => {
-    const [alias, language] = part.split('~~');
-    return { alias, language };
-  });
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter(entry => entry && typeof entry === 'object' && entry.alias)
+        .map(entry => ({
+          alias: entry.alias,
+          language: VALID_LANGUAGES.includes(entry.language) ? entry.language : 'english',
+          preferred: !!entry.preferred,
+          variant_group: entry.variant_group || null,
+          usage_note: entry.usage_note || null,
+        }));
+    }
+  } catch {}
+
+  // Backward compatibility with older delimiter-based alias payloads.
+  return raw
+    .split('||')
+    .map(part => {
+      const [alias, language] = part.split('~~');
+      return { alias, language };
+    })
+    .filter(entry => entry.alias);
 }
 
 function formatName(row) {
@@ -263,6 +282,8 @@ const FIELD_LIMITS = {
   english: 120,
   meaning: 300,
   alias: 120,
+  variant_group: 80,
+  usage_note: 200,
   submitted_by: 80,
 };
 
@@ -306,11 +327,29 @@ function sanitizeAliasesInput(rawAliases, errors, { allowUndefined = true } = {}
     if (!alias) continue;
 
     const language = VALID_LANGUAGES.includes(entry.language) ? entry.language : 'english';
+    const variant_group = sanitizeLimitedText(
+      entry.variant_group,
+      `aliases[${i}].variant_group`,
+      errors,
+      { maxLength: FIELD_LIMITS.variant_group }
+    );
+    const usage_note = sanitizeLimitedText(
+      entry.usage_note,
+      `aliases[${i}].usage_note`,
+      errors,
+      { maxLength: FIELD_LIMITS.usage_note }
+    );
     const dedupeKey = `${language}||${alias.toLowerCase()}`;
     if (seen.has(dedupeKey)) continue;
 
     seen.add(dedupeKey);
-    clean.push({ alias, language });
+    clean.push({
+      alias,
+      language,
+      preferred: !!entry.preferred,
+      variant_group,
+      usage_note,
+    });
   }
 
   return clean;
@@ -796,7 +835,13 @@ async function handleSearch(request, env) {
     sql = `
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
-        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        ))
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
         CASE WHEN n.mon = ? THEN 0 WHEN n.mon LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
@@ -811,7 +856,13 @@ async function handleSearch(request, env) {
     sql = `
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
-        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        ))
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
         CASE WHEN n.burmese = ? THEN 0 WHEN n.burmese LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
@@ -826,7 +877,13 @@ async function handleSearch(request, env) {
     sql = `
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
-        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        ))
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
         CASE WHEN n.english = ? THEN 0 WHEN n.english LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END AS match_rank
       FROM names n
@@ -841,7 +898,13 @@ async function handleSearch(request, env) {
     sql = `
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified,
-        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        ))
          FROM aliases a WHERE a.name_id = n.id) AS aliases,
         CASE
           WHEN n.mon = ? OR n.burmese = ? OR n.english = ? THEN 0
@@ -1004,7 +1067,13 @@ async function handleListNames(request, env) {
     env.DB.prepare(`
       SELECT
         n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified, n.created_at,
-        (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        ))
          FROM aliases a WHERE a.name_id = n.id) AS aliases
       FROM names n
       ${whereClause}
@@ -1047,11 +1116,20 @@ async function handleCreateName(request, env) {
   const nameId = result.meta.last_row_id;
 
   if (Array.isArray(payload.aliases) && payload.aliases.length > 0) {
-    for (const { alias, language } of payload.aliases) {
+    for (const { alias, language, preferred, variant_group, usage_note } of payload.aliases) {
       if (alias && VALID_LANGUAGES.includes(language)) {
         await env.DB.prepare(
-          'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-        ).bind(nameId, alias, language).run();
+          `INSERT OR IGNORE INTO aliases
+           (name_id, alias, language, preferred, variant_group, usage_note)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).bind(
+          nameId,
+          alias,
+          language,
+          preferred ? 1 : 0,
+          variant_group,
+          usage_note
+        ).run();
       }
     }
   }
@@ -1080,11 +1158,20 @@ async function handleUpdateName(request, env, id) {
   if (payload.aliases !== undefined) {
     await env.DB.prepare('DELETE FROM aliases WHERE name_id = ?').bind(id).run();
     if (Array.isArray(payload.aliases)) {
-      for (const { alias, language } of payload.aliases) {
+      for (const { alias, language, preferred, variant_group, usage_note } of payload.aliases) {
         if (alias && VALID_LANGUAGES.includes(language)) {
           await env.DB.prepare(
-            'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-          ).bind(id, alias, language).run();
+            `INSERT OR IGNORE INTO aliases
+             (name_id, alias, language, preferred, variant_group, usage_note)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(
+            id,
+            alias,
+            language,
+            preferred ? 1 : 0,
+            variant_group,
+            usage_note
+          ).run();
         }
       }
     }
@@ -1159,11 +1246,20 @@ async function handleUpdateSuggestion(request, env, id) {
       try { aliases = JSON.parse(suggestion.aliases_json); } catch { aliases = []; }
       const parseErrors = [];
       const cleanAliases = sanitizeAliasesInput(aliases, parseErrors, { allowUndefined: false });
-      for (const { alias, language } of (cleanAliases || [])) {
+      for (const { alias, language, preferred, variant_group, usage_note } of (cleanAliases || [])) {
         if (alias && VALID_LANGUAGES.includes(language)) {
           await env.DB.prepare(
-            'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-          ).bind(approvedNameId, alias, language).run();
+            `INSERT OR IGNORE INTO aliases
+             (name_id, alias, language, preferred, variant_group, usage_note)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(
+            approvedNameId,
+            alias,
+            language,
+            preferred ? 1 : 0,
+            variant_group,
+            usage_note
+          ).run();
         }
       }
     }

@@ -182,15 +182,38 @@
 
     /* ── Name form inside modal ───────────────────────────── */
     .alias-row {
+      display: grid;
+      gap: var(--space-xs);
+      align-items: stretch;
+      margin-bottom: var(--space-sm);
+      padding: var(--space-sm);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      background: color-mix(in srgb, var(--bg-card) 85%, transparent);
+    }
+
+    .alias-row__primary {
       display: flex;
       gap: var(--space-sm);
       align-items: center;
-      margin-bottom: var(--space-sm);
+      flex-wrap: wrap;
     }
 
-    .alias-row input { flex: 1; }
-    .alias-row select { width: 140px; flex-shrink: 0; }
-    .alias-row button { flex-shrink: 0; }
+    .alias-row__primary input[type="text"] { flex: 1; min-width: 160px; }
+    .alias-row__primary select { width: 140px; flex-shrink: 0; }
+    .alias-row__primary button { flex-shrink: 0; }
+
+    .alias-row__meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-sm);
+    }
+
+    @media (max-width: 640px) {
+      .alias-row__meta {
+        grid-template-columns: 1fr;
+      }
+    }
 
     /* ── Suggestion cards ─────────────────────────────────── */
     .sugg-card {
@@ -541,7 +564,7 @@
       <hr class="divider" />
 
       <label>Aliases / Alternate Spellings</label>
-      <p class="form-hint mb-md">Add alternate romanisations or script variants for this name.</p>
+      <p class="form-hint mb-md">Add alternate romanisations or script variants. Optionally mark preferred spellings, group family variants (e.g. aung-family), and record usage notes.</p>
 
       <div id="aliasRows"><!-- populated by JS --></div>
 
