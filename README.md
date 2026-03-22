@@ -113,10 +113,24 @@ App runs at `http://localhost:8787`.
 
 ---
 
+
+## Testing
+
+Run the lightweight regression tests for conversion-critical behavior:
+
+```bash
+npm test
+```
+
+This suite covers exact full-name conversion, exact alias conversion, segmented fallback assembly, separator preservation in rebuilt output, and duplicate-safe suggestion approval behavior.
+
+---
+
 ## Available npm Scripts
 
 - `npm run dev` — Run worker locally.
 - `npm run deploy` — Deploy worker.
+- `npm test` — Run lightweight conversion regression tests.
 - `npm run db:create` — Create D1 database.
 - `npm run db:migrate:local` — Apply migrations locally.
 - `npm run db:migrate:remote` — Apply migrations remotely.
