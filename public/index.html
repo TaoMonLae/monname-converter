@@ -81,6 +81,32 @@
       background: rgba(30, 41, 59, 0.35);
     }
 
+    .conversion-hint {
+      margin: calc(var(--space-sm) * -1) 0 var(--space-md);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border, #334155);
+      background: rgba(30, 41, 59, 0.22);
+      color: var(--text-muted, #94a3b8);
+      font-size: 0.8rem;
+      line-height: 1.35;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .conversion-hint::before {
+      content: 'ℹ';
+      font-size: 0.8rem;
+      opacity: 0.75;
+    }
+
+    [data-theme="light"] .conversion-hint {
+      background: var(--bg-overlay);
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+
     .result-columns {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -777,6 +803,7 @@
     <p class="converter-status" id="converterStatus">Ready</p>
 
     <div class="mode-note">တက်စုတ်ယၟု ဗတ်(မန်-ဗၟာ-အေၚ်္ဂလိက်)တုဲ ဓမံက်ထ္ၜးကု အတိုၚ် ပိဘာသာရောၚ်။ </div>
+    <div id="conversionHint" class="conversion-hint hidden" aria-live="polite"></div>
 
     <!-- Three input boxes -->
     <div class="input-columns">
