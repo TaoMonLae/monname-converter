@@ -30,6 +30,7 @@ const downloadCardBtn = document.getElementById('downloadCardBtn');
 const suggestWordBtn  = document.getElementById('suggestWordBtn');
 const historyList     = document.getElementById('historyList');
 const converterStatus = document.getElementById('converterStatus');
+const conversionHint  = document.getElementById('conversionHint');
 
 const suggestModal      = document.getElementById('suggestModal');
 const closeSuggestModal = document.getElementById('closeSuggestModal');
@@ -190,6 +191,7 @@ async function convert() {
 
     renderWordTokens();
     wordTokensSection.classList.toggle('hidden', !needsBreakdown);
+    setConversionHint(firstConv);
 
     downloadCardBtn?.classList.remove('hidden');
     saveHistory(input, columnResults);
@@ -198,6 +200,7 @@ async function convert() {
   } catch (e) {
     wordTokensDiv.innerHTML = `<div class="alert alert--danger">${escHtml(e.message || 'Conversion failed — please try again.')}</div>`;
     wordTokensSection.classList.remove('hidden');
+    setConversionHint(null);
     setStatus('');
   } finally {
     convertBtn.disabled = false;
@@ -610,6 +613,7 @@ function clearAll() {
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
   downloadCardBtn?.classList.add('hidden');
+  setConversionHint(null);
   setStatus('');
 }
 
@@ -644,6 +648,39 @@ function copyColumn(lang, btn) {
 
 function setStatus(msg) {
   if (converterStatus) converterStatus.textContent = msg;
+}
+
+function setConversionHint(conversion) {
+  if (!conversionHint) return;
+  if (!conversion) {
+    conversionHint.textContent = '';
+    conversionHint.classList.add('hidden');
+    return;
+  }
+
+  const mode = conversion.mode || '';
+  const segments = Array.isArray(conversion.segments) ? conversion.segments : [];
+  const unmatchedCount = segments.filter(seg => !seg?.matched).length;
+
+  let message = '';
+  if (mode === 'exact_name') {
+    message = 'Exact full-name match';
+  } else if (mode === 'alias_name') {
+    message = 'Exact alias match';
+  } else if (mode === 'segmented' && unmatchedCount > 0) {
+    message = 'Partial match — some parts were not found';
+  } else if (mode === 'segmented') {
+    message = 'Segmented best match';
+  }
+
+  if (!message) {
+    conversionHint.textContent = '';
+    conversionHint.classList.add('hidden');
+    return;
+  }
+
+  conversionHint.textContent = message;
+  conversionHint.classList.remove('hidden');
 }
 
 function langClass(lang) {
