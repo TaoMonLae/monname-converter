@@ -93,6 +93,13 @@ function normalize(q) {
   return (q || '').replace(/\s+/g, ' ').trim();
 }
 
+function escapeLike(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+
 function isEnglishBoundaryChar(ch) {
   return !ch || /[\s\-_'"`.,/\\()[\]{}!?;:]/.test(ch);
 }
@@ -714,10 +721,6 @@ async function handleSearch(request, env) {
   if (!q) return json({ results: [] });
   if (q.length > 300) return err('Query too long (max 300 characters)');
 
-  // Escape SQLite LIKE special characters to prevent unexpected wildcard behaviour
-  function escapeLike(s) {
-    return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-  }
   const safeQ = escapeLike(q);
 
   const exact = q;
@@ -908,8 +911,32 @@ async function handleAdminStats(request, env) {
 async function handleListNames(request, env) {
   const url = new URL(request.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+  const q = normalize(url.searchParams.get('q'));
   const limit = 50;
   const offset = (page - 1) * limit;
+  const hasQuery = q.length > 0;
+
+  if (q.length > 300) return err('Query too long (max 300 characters)');
+
+  const partial = `%${escapeLike(q)}%`;
+  const whereClause = hasQuery
+    ? `WHERE (
+      n.mon LIKE ? ESCAPE '\\'
+      OR n.burmese LIKE ? ESCAPE '\\'
+      OR n.english LIKE ? ESCAPE '\\'
+      OR n.meaning LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM aliases a
+        WHERE a.name_id = n.id
+          AND a.alias LIKE ? ESCAPE '\\'
+      )
+    )`
+    : '';
+
+  const listBindings = hasQuery
+    ? [partial, partial, partial, partial, partial, limit, offset]
+    : [limit, offset];
+  const countBindings = hasQuery ? [partial, partial, partial, partial, partial] : [];
 
   const [{ results }, countRow] = await Promise.all([
     env.DB.prepare(`
@@ -918,10 +945,15 @@ async function handleListNames(request, env) {
         (SELECT GROUP_CONCAT(a.alias || '~~' || a.language, '||')
          FROM aliases a WHERE a.name_id = n.id) AS aliases
       FROM names n
+      ${whereClause}
       ORDER BY n.created_at DESC
       LIMIT ? OFFSET ?
-    `).bind(limit, offset).all(),
-    env.DB.prepare('SELECT COUNT(*) AS count FROM names').first(),
+    `).bind(...listBindings).all(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM names n
+      ${whereClause}
+    `).bind(...countBindings).first(),
   ]);
 
   return json({
@@ -930,6 +962,7 @@ async function handleListNames(request, env) {
     page,
     limit,
     totalPages: Math.ceil(countRow.count / limit),
+    q,
   });
 }
 

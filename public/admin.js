@@ -11,6 +11,7 @@ const API = '/api';
 
 // ── State ────────────────────────────────────────────────────
 let currentNamesPage = 1;
+let currentNamesQuery = '';
 let currentSuggestionStatus = 'pending';
 let allNames = [];           // local copy for client-side filter
 let editingAliases = [];     // aliases currently in the modal
@@ -176,9 +177,10 @@ suggTabs.forEach(tab => {
 // ═══════════════════════════════════════════════════════════
 
 async function initDashboard() {
+  currentNamesQuery = nameFilter.value.trim();
   await Promise.all([
     loadStats(),
-    loadNames(1),
+    loadNames(1, currentNamesQuery),
   ]);
 }
 
@@ -205,14 +207,20 @@ async function loadStats() {
 // ── Names CRUD ───────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
-async function loadNames(page = 1) {
+async function loadNames(page = 1, query = currentNamesQuery) {
   currentNamesPage = page;
+  currentNamesQuery = (query || '').trim();
   namesTableBody.innerHTML = `<tr><td colspan="7"><div class="spinner"></div></td></tr>`;
 
   try {
-    const data = await apiFetch(`${API}/admin/names?page=${page}`);
+    const params = new URLSearchParams({ page: String(page) });
+    if (currentNamesQuery) params.set('q', currentNamesQuery);
+    const data = await apiFetch(`${API}/admin/names?${params.toString()}`);
     allNames = data.results;
 
+    if (nameFilter.value !== currentNamesQuery) {
+      nameFilter.value = currentNamesQuery;
+    }
     namesBadge.textContent = data.total;
     renderNamesTable(data.results);
     renderPagination(data.page, data.totalPages);
@@ -221,16 +229,13 @@ async function loadNames(page = 1) {
   }
 }
 
-// Client-side filter
+let namesSearchDebounceTimer;
 nameFilter.addEventListener('input', () => {
-  const q = nameFilter.value.toLowerCase();
-  const filtered = allNames.filter(n =>
-    (n.mon     || '').toLowerCase().includes(q) ||
-    (n.burmese || '').toLowerCase().includes(q) ||
-    (n.english || '').toLowerCase().includes(q) ||
-    (n.meaning || '').toLowerCase().includes(q)
-  );
-  renderNamesTable(filtered);
+  clearTimeout(namesSearchDebounceTimer);
+  const nextQuery = nameFilter.value.trim();
+  namesSearchDebounceTimer = setTimeout(() => {
+    loadNames(1, nextQuery);
+  }, 250);
 });
 
 function renderNamesTable(names) {
