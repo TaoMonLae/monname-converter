@@ -407,33 +407,70 @@ nameModal.addEventListener('click', e => { if (e.target === nameModal) closeModa
 function syncAliasesFromDom() {
   aliasRows.querySelectorAll('.alias-row').forEach((row, i) => {
     if (editingAliases[i]) {
-      editingAliases[i].alias    = row.querySelector('input').value;
-      editingAliases[i].language = row.querySelector('select').value;
+      editingAliases[i].alias = row.querySelector('[data-field="alias"]').value;
+      editingAliases[i].language = row.querySelector('[data-field="language"]').value;
+      editingAliases[i].preferred = row.querySelector('[data-field="preferred"]').checked;
+      editingAliases[i].variant_group = row.querySelector('[data-field="variant_group"]').value;
+      editingAliases[i].usage_note = row.querySelector('[data-field="usage_note"]').value;
     }
   });
 }
 
 addAliasBtn.addEventListener('click', () => {
   syncAliasesFromDom();
-  editingAliases.push({ alias: '', language: 'english' });
+  editingAliases.push({
+    alias: '',
+    language: 'english',
+    preferred: false,
+    variant_group: '',
+    usage_note: '',
+  });
   renderAliasRows();
 });
 
 function renderAliasRows() {
   aliasRows.innerHTML = editingAliases.map((a, i) => `
     <div class="alias-row" data-index="${i}">
-      <input
-        type="text"
-        value="${escHtml(a.alias)}"
-        placeholder="Alternate spelling"
-        onchange="editingAliases[${i}].alias = this.value"
-      />
-      <select onchange="editingAliases[${i}].language = this.value">
-        <option value="english"  ${a.language === 'english'  ? 'selected' : ''}>English</option>
-        <option value="mon"      ${a.language === 'mon'      ? 'selected' : ''}>Mon</option>
-        <option value="burmese"  ${a.language === 'burmese'  ? 'selected' : ''}>Burmese</option>
-      </select>
-      <button class="btn btn--ghost btn--sm" onclick="removeAlias(${i})">✕</button>
+      <div class="alias-row__primary">
+        <input
+          type="text"
+          data-field="alias"
+          value="${escHtml(a.alias || '')}"
+          placeholder="Alternate spelling"
+          onchange="editingAliases[${i}].alias = this.value"
+        />
+        <select data-field="language" onchange="editingAliases[${i}].language = this.value">
+          <option value="english"  ${a.language === 'english'  ? 'selected' : ''}>English</option>
+          <option value="mon"      ${a.language === 'mon'      ? 'selected' : ''}>Mon</option>
+          <option value="burmese"  ${a.language === 'burmese'  ? 'selected' : ''}>Burmese</option>
+        </select>
+        <label class="text-small" style="white-space:nowrap">
+          <input
+            type="checkbox"
+            data-field="preferred"
+            ${a.preferred ? 'checked' : ''}
+            onchange="editingAliases[${i}].preferred = this.checked"
+          />
+          Preferred
+        </label>
+        <button class="btn btn--ghost btn--sm" onclick="removeAlias(${i})">✕</button>
+      </div>
+      <div class="alias-row__meta">
+        <input
+          type="text"
+          data-field="variant_group"
+          value="${escHtml(a.variant_group || '')}"
+          placeholder="Variant family key (e.g. aung-family)"
+          onchange="editingAliases[${i}].variant_group = this.value"
+        />
+        <input
+          type="text"
+          data-field="usage_note"
+          value="${escHtml(a.usage_note || '')}"
+          placeholder="Usage note (optional)"
+          onchange="editingAliases[${i}].usage_note = this.value"
+        />
+      </div>
     </div>
   `).join('');
 }
@@ -447,8 +484,11 @@ function removeAlias(index) {
 function collectAliases() {
   // Re-read from DOM to catch any unsaved typing
   return [...aliasRows.querySelectorAll('.alias-row')].map(row => ({
-    alias: row.querySelector('input').value.trim(),
-    language: row.querySelector('select').value,
+    alias: row.querySelector('[data-field="alias"]').value.trim(),
+    language: row.querySelector('[data-field="language"]').value,
+    preferred: row.querySelector('[data-field="preferred"]').checked,
+    variant_group: row.querySelector('[data-field="variant_group"]').value.trim(),
+    usage_note: row.querySelector('[data-field="usage_note"]').value.trim(),
   })).filter(a => a.alias);
 }
 
