@@ -1,4 +1,4 @@
-# Mon Names Converter
+# Mon Names Converter by Tao Mon Lae
 
 Mon Names Converter is a Cloudflare Workers + D1 web app for searching and managing Mon, Burmese, and English name equivalents.
 
