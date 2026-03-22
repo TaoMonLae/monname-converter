@@ -107,32 +107,6 @@
       color: var(--text-muted);
     }
 
-    .result-columns {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: var(--space-sm);
-      margin-top: var(--space-sm);
-    }
-
-    .result-column {
-      border: 1px solid var(--border, #334155);
-      border-radius: var(--radius-sm);
-      padding: var(--space-sm);
-      background: var(--input-bg, #1e293b);
-    }
-
-    .result-column__header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: var(--space-xs);
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--text-muted, #94a3b8);
-      font-weight: 700;
-    }
-
     .copy-col-btn {
       border: 1px solid var(--border, #334155);
       background: transparent;
@@ -141,17 +115,6 @@
       padding: 2px 6px;
       cursor: pointer;
       font-size: 0.72rem;
-    }
-
-    .result-column__value {
-      font-size: 1.05rem;
-      min-height: 3.2em;
-      word-break: break-word;
-    }
-
-    [data-theme="light"] .result-column {
-      background: var(--bg-warm);
-      border-color: var(--border);
     }
 
     /* ── Input area ─────────────────────────────────────────── */
@@ -427,151 +390,6 @@
 
     .variant-chip__meaning {
       opacity: 0.65;
-      font-size: 0.72rem;
-      font-style: italic;
-    }
-
-    /* ── Result ─────────────────────────────────────────────── */
-    .result-section {
-      background: var(--converter-card, #0f172a);
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border, #334155);
-      padding: var(--space-md);
-      margin-bottom: var(--space-md);
-    }
-
-    [data-theme="light"] .result-section {
-      background: var(--accent-pale);
-      border-color: rgba(200, 147, 42, 0.3);
-    }
-
-    .result-section .input-label {
-      margin-bottom: var(--space-sm);
-    }
-
-    .result-display {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--space-sm);
-    }
-
-    .result-text {
-      flex: 1;
-      font-size: 1.2rem;
-      color: #67e8f9;
-      font-weight: 500;
-      min-height: 2em;
-      line-height: 1.4;
-      word-break: break-word;
-    }
-
-    [data-theme="light"] .result-text {
-      color: var(--primary);
-    }
-
-    .copy-btn {
-      background: var(--input-bg, #1e293b);
-      border: 1px solid var(--border, #334155);
-      border-radius: var(--radius-sm);
-      padding: 6px 10px;
-      cursor: pointer;
-      color: var(--text-mid, #cbd5e1);
-      font-size: 1rem;
-      transition: all var(--duration);
-      flex-shrink: 0;
-    }
-
-    .copy-btn:hover {
-      background: var(--border, #334155);
-      border-color: #22d3ee;
-      color: #67e8f9;
-    }
-
-    [data-theme="light"] .copy-btn {
-      background: var(--bg-card);
-      border-color: var(--border);
-      color: var(--text-mid);
-    }
-
-    [data-theme="light"] .copy-btn:hover {
-      background: var(--bg-warm);
-      border-color: var(--primary-light);
-      color: var(--primary);
-    }
-
-    .name-variant-section {
-      margin-top: var(--space-md);
-      padding-top: var(--space-md);
-      border-top: 1px solid var(--border, #334155);
-    }
-
-    .name-variant-section .input-label {
-      margin-bottom: var(--space-sm);
-    }
-
-    .name-variant-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .name-variant-btn {
-      border: 1px solid var(--border, #475569);
-      background: var(--converter-card, #0f172a);
-      color: var(--text-mid, #cbd5e1);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      display: inline-flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 3px;
-      cursor: pointer;
-      transition: all var(--duration);
-      font-size: 0.86rem;
-      min-width: 120px;
-    }
-
-    [data-theme="light"] .name-variant-btn {
-      background: var(--bg-card);
-      color: var(--text-mid);
-      border-color: var(--border);
-    }
-
-    .name-variant-btn:hover {
-      border-color: #22d3ee;
-      color: #e2e8f0;
-    }
-
-    [data-theme="light"] .name-variant-btn:hover {
-      border-color: var(--primary-light);
-      color: var(--primary);
-      background: var(--bg-warm);
-    }
-
-    .name-variant-btn.active {
-      border-color: #22d3ee;
-      background: rgba(34, 211, 238, 0.12);
-      color: #67e8f9;
-    }
-
-    [data-theme="light"] .name-variant-btn.active {
-      border-color: var(--primary);
-      background: var(--bg-overlay);
-      color: var(--primary);
-    }
-
-    .name-variant-btn__target {
-      font-size: 1rem;
-      font-weight: 600;
-    }
-
-    .name-variant-btn__source {
-      opacity: 0.7;
-      font-size: 0.77rem;
-    }
-
-    .name-variant-btn__meaning {
-      opacity: 0.6;
       font-size: 0.72rem;
       font-style: italic;
     }
@@ -869,8 +687,6 @@
       <div id="wordTokens" class="word-tokens-list"></div>
     </div>
 
-    <!-- Result section (hidden, kept for JS compatibility) -->
-    <div id="resultSection" class="hidden" style="display:none!important;"></div>
 
     <!-- Download Card -->
     <button class="download-card-btn hidden" id="downloadCardBtn">
