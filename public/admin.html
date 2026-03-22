@@ -363,6 +363,10 @@
           📥 Suggestions
           <span class="sidebar-nav__badge" id="suggBadge">—</span>
         </button>
+        <button class="sidebar-nav__item" data-panel="segments" id="navSegments">
+          🔤 Segments
+          <span class="sidebar-nav__badge" id="segmentsBadge">—</span>
+        </button>
       </nav>
     </aside>
 
@@ -443,6 +447,49 @@
         </div>
       </div>
 
+      <!-- ── Segments Panel ─────────────────────────────── -->
+      <div id="panelSegments" style="display:none">
+        <div class="admin-page-header">
+          <div>
+            <h2>Segments</h2>
+            <p class="text-muted text-small">Manage source segments and target variants</p>
+          </div>
+          <div class="admin-page-header__actions">
+            <button class="btn btn--accent" id="createSegmentBtn">+ New segment</button>
+          </div>
+        </div>
+
+        <div class="admin-toolbar">
+          <input type="text" id="segmentFilter" placeholder="Filter source text…" style="max-width:280px" />
+          <select id="segmentLangFilter" style="width:170px">
+            <option value="all">All source languages</option>
+            <option value="mon">Mon source</option>
+            <option value="burmese">Burmese source</option>
+            <option value="english">English source</option>
+          </select>
+        </div>
+
+        <div class="table-wrap">
+          <table id="segmentsTable">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Lang</th>
+                <th>Meaning</th>
+                <th>Variants</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="segmentsTableBody">
+              <tr><td colspan="6"><div class="spinner"></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="segmentsPagination"></div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -505,6 +552,67 @@
     <div class="modal__footer">
       <button class="btn btn--ghost" id="nameModalCancel">Cancel</button>
       <button class="btn btn--primary" id="nameModalSave">Save entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Segment Create/Edit Modal ────────────────────────────── -->
+<div class="modal-backdrop" id="segmentModal" role="dialog" aria-modal="true" aria-labelledby="segmentModalTitle">
+  <div class="modal">
+    <div class="modal__header">
+      <h3 id="segmentModalTitle">New Segment</h3>
+      <button class="modal__close" id="segmentModalClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal__body">
+      <input type="hidden" id="editSegmentId" />
+      <div class="form-grid">
+        <div class="form-group form-group--full">
+          <label for="seg-source-text">Source text</label>
+          <input type="text" id="seg-source-text" placeholder="source token" />
+        </div>
+        <div class="form-group">
+          <label for="seg-source-lang">Source language</label>
+          <select id="seg-source-lang">
+            <option value="mon">Mon</option>
+            <option value="burmese">Burmese</option>
+            <option value="english">English</option>
+          </select>
+        </div>
+        <div class="form-group form-group--full">
+          <label for="seg-meaning">Meaning / notes</label>
+          <input type="text" id="seg-meaning" placeholder="Optional notes" />
+        </div>
+        <div class="form-group form-group--full">
+          <label><input type="checkbox" id="seg-verified" style="margin-right:6px" />Mark segment as verified</label>
+        </div>
+      </div>
+      <div id="segmentModalAlert" class="mt-md" style="display:none"></div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" id="segmentModalCancel">Cancel</button>
+      <button class="btn btn--primary" id="segmentModalSave">Save segment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Segment Variant Modal ────────────────────────────────── -->
+<div class="modal-backdrop" id="variantModal" role="dialog" aria-modal="true" aria-labelledby="variantModalTitle">
+  <div class="modal">
+    <div class="modal__header">
+      <h3 id="variantModalTitle">Segment Variants</h3>
+      <button class="modal__close" id="variantModalClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal__body">
+      <input type="hidden" id="variantSegmentId" />
+      <div class="admin-toolbar" style="margin-bottom:var(--space-sm)">
+        <button class="btn btn--accent btn--sm" id="addVariantBtn">+ Add variant</button>
+      </div>
+      <div id="variantSegmentMeta" class="text-small text-muted mb-md"></div>
+      <div id="variantsContainer"></div>
+      <div id="variantModalAlert" class="mt-md" style="display:none"></div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--ghost" id="variantModalCloseBtn">Close</button>
     </div>
   </div>
 </div>

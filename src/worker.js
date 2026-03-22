@@ -254,6 +254,9 @@ function collapseSpaces(value) {
 
 const VALID_LANGUAGES = ['mon', 'burmese', 'english'];
 const VALID_GENDERS = ['male', 'female', 'neutral'];
+const SEGMENT_TEXT_LIMIT = 160;
+const SEGMENT_MEANING_LIMIT = 300;
+const SEGMENT_NOTES_LIMIT = 300;
 const FIELD_LIMITS = {
   mon: 120,
   burmese: 120,
@@ -347,6 +350,65 @@ function sanitizeNamePayload(body, { includeSubmittedBy = false, aliasesOptional
   }
 
   return { errors, payload };
+}
+
+function sanitizeSegmentPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { errors: ['Request body must be a JSON object'] };
+  }
+
+  const errors = [];
+  const sourceText = sanitizeLimitedText(body.source_text, 'source_text', errors, {
+    maxLength: SEGMENT_TEXT_LIMIT,
+    allowNull: false,
+  });
+  const meaning = sanitizeLimitedText(body.meaning, 'meaning', errors, {
+    maxLength: SEGMENT_MEANING_LIMIT,
+  });
+  const sourceLang = VALID_LANGUAGES.includes(body.source_lang) ? body.source_lang : null;
+  if (!sourceLang) {
+    errors.push('source_lang must be mon, burmese, or english');
+  }
+
+  return {
+    errors,
+    payload: {
+      source_text: sourceText,
+      source_lang: sourceLang,
+      meaning,
+      verified: !!body.verified,
+    },
+  };
+}
+
+function sanitizeSegmentVariantPayload(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { errors: ['Request body must be a JSON object'] };
+  }
+
+  const errors = [];
+  const targetText = sanitizeLimitedText(body.target_text, 'target_text', errors, {
+    maxLength: SEGMENT_TEXT_LIMIT,
+    allowNull: false,
+  });
+  const notes = sanitizeLimitedText(body.notes, 'notes', errors, {
+    maxLength: SEGMENT_NOTES_LIMIT,
+  });
+  const targetLang = VALID_LANGUAGES.includes(body.target_lang) ? body.target_lang : null;
+  if (!targetLang) {
+    errors.push('target_lang must be mon, burmese, or english');
+  }
+
+  return {
+    errors,
+    payload: {
+      target_lang: targetLang,
+      target_text: targetText,
+      preferred: !!body.preferred,
+      verified: !!body.verified,
+      notes,
+    },
+  };
 }
 
 function toOptionFromName(row) {
@@ -1120,6 +1182,313 @@ async function handleUpdateSuggestion(request, env, id) {
   return json({ success: true, nameId: status === 'approved' ? approvedNameId : null });
 }
 
+async function handleListSegments(request, env) {
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+  const q = normalize(url.searchParams.get('q'));
+  const sourceLang = url.searchParams.get('source_lang') || 'all';
+  const limit = 50;
+  const offset = (page - 1) * limit;
+
+  if (q.length > 300) return err('Query too long (max 300 characters)');
+  if (sourceLang !== 'all' && !VALID_LANGUAGES.includes(sourceLang)) {
+    return err('Invalid source_lang filter');
+  }
+
+  const hasQuery = q.length > 0;
+  const safeQ = `%${escapeLike(q)}%`;
+  const where = [];
+  const bindings = [];
+
+  if (sourceLang !== 'all') {
+    where.push('s.source_lang = ?');
+    bindings.push(sourceLang);
+  }
+  if (hasQuery) {
+    where.push('s.source_text LIKE ? ESCAPE \'\\\'');
+    bindings.push(safeQ);
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const listBindings = [...bindings, limit, offset];
+  const countBindings = [...bindings];
+
+  const [{ results }, countRow] = await Promise.all([
+    env.DB.prepare(`
+      SELECT
+        s.id,
+        s.source_text,
+        s.source_lang,
+        s.meaning,
+        s.verified,
+        s.created_at,
+        s.updated_at,
+        COUNT(sv.id) AS variant_count
+      FROM segments s
+      LEFT JOIN segment_variants sv ON sv.segment_id = s.id
+      ${whereClause}
+      GROUP BY s.id
+      ORDER BY s.updated_at DESC, s.id DESC
+      LIMIT ? OFFSET ?
+    `).bind(...listBindings).all(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM segments s
+      ${whereClause}
+    `).bind(...countBindings).first(),
+  ]);
+
+  return json({
+    results: (results || []).map(row => ({
+      ...row,
+      verified: !!row.verified,
+      variant_count: Number(row.variant_count || 0),
+    })),
+    total: Number(countRow?.count || 0),
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(Number(countRow?.count || 0) / limit)),
+    q,
+    source_lang: sourceLang,
+  });
+}
+
+async function handleCreateSegment(request, env) {
+  let body;
+  try { body = await request.json(); }
+  catch { return err('Request body must be valid JSON'); }
+
+  const { errors, payload } = sanitizeSegmentPayload(body);
+  if (errors.length) return invalidPayload(errors);
+
+  try {
+    const result = await env.DB.prepare(`
+      INSERT INTO segments (source_text, source_lang, meaning, verified)
+      VALUES (?, ?, ?, ?)
+    `).bind(
+      payload.source_text,
+      payload.source_lang,
+      payload.meaning,
+      payload.verified ? 1 : 0
+    ).run();
+    return json({ success: true, id: result.meta.last_row_id }, 201);
+  } catch (e) {
+    if (String(e.message || '').toLowerCase().includes('unique')) {
+      return err('A segment with this source text and source language already exists', 409);
+    }
+    throw e;
+  }
+}
+
+async function handleUpdateSegment(request, env, id) {
+  let body;
+  try { body = await request.json(); }
+  catch { return err('Request body must be valid JSON'); }
+
+  const { errors, payload } = sanitizeSegmentPayload(body);
+  if (errors.length) return invalidPayload(errors);
+
+  const existing = await env.DB.prepare('SELECT id FROM segments WHERE id = ?').bind(id).first();
+  if (!existing) return err('Segment not found', 404);
+
+  try {
+    await env.DB.prepare(`
+      UPDATE segments
+      SET source_text = ?,
+          source_lang = ?,
+          meaning = ?,
+          verified = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(
+      payload.source_text,
+      payload.source_lang,
+      payload.meaning,
+      payload.verified ? 1 : 0,
+      id
+    ).run();
+    return json({ success: true });
+  } catch (e) {
+    if (String(e.message || '').toLowerCase().includes('unique')) {
+      return err('A segment with this source text and source language already exists', 409);
+    }
+    throw e;
+  }
+}
+
+async function handleDeleteSegment(request, env, id) {
+  const existing = await env.DB.prepare('SELECT id FROM segments WHERE id = ?').bind(id).first();
+  if (!existing) return err('Segment not found', 404);
+  await env.DB.prepare('DELETE FROM segments WHERE id = ?').bind(id).run();
+  return json({ success: true });
+}
+
+async function handleListSegmentVariants(request, env, segmentId) {
+  const segment = await env.DB.prepare(`
+    SELECT id, source_text, source_lang, meaning, verified
+    FROM segments
+    WHERE id = ?
+  `).bind(segmentId).first();
+  if (!segment) return err('Segment not found', 404);
+
+  const { results } = await env.DB.prepare(`
+    SELECT id, segment_id, target_lang, target_text, preferred, verified, notes, created_at
+    FROM segment_variants
+    WHERE segment_id = ?
+    ORDER BY target_lang ASC, preferred DESC, verified DESC, target_text ASC
+  `).bind(segmentId).all();
+
+  return json({
+    segment: { ...segment, verified: !!segment.verified },
+    results: (results || []).map(row => ({
+      ...row,
+      preferred: !!row.preferred,
+      verified: !!row.verified,
+    })),
+  });
+}
+
+async function applySegmentVariantPreferred(env, segmentId, targetLang, preferredId = null) {
+  await env.DB.prepare(`
+    UPDATE segment_variants
+    SET preferred = CASE WHEN id = ? THEN 1 ELSE 0 END
+    WHERE segment_id = ? AND target_lang = ?
+  `).bind(preferredId || -1, segmentId, targetLang).run();
+}
+
+async function handleCreateSegmentVariant(request, env, segmentId) {
+  let body;
+  try { body = await request.json(); }
+  catch { return err('Request body must be valid JSON'); }
+
+  const { errors, payload } = sanitizeSegmentVariantPayload(body);
+  if (errors.length) return invalidPayload(errors);
+
+  const segment = await env.DB.prepare(`
+    SELECT id, source_lang
+    FROM segments
+    WHERE id = ?
+  `).bind(segmentId).first();
+  if (!segment) return err('Segment not found', 404);
+  if (payload.target_lang === segment.source_lang) {
+    return err('target_lang must be different from source_lang');
+  }
+
+  try {
+    const result = await env.DB.prepare(`
+      INSERT INTO segment_variants (segment_id, target_lang, target_text, preferred, verified, notes)
+      VALUES (?, ?, ?, 0, ?, ?)
+    `).bind(
+      segmentId,
+      payload.target_lang,
+      payload.target_text,
+      payload.verified ? 1 : 0,
+      payload.notes
+    ).run();
+
+    if (payload.preferred) {
+      await applySegmentVariantPreferred(env, segmentId, payload.target_lang, result.meta.last_row_id);
+    }
+
+    await env.DB.prepare(
+      `UPDATE segments SET updated_at = datetime('now') WHERE id = ?`
+    ).bind(segmentId).run();
+
+    return json({ success: true, id: result.meta.last_row_id }, 201);
+  } catch (e) {
+    if (String(e.message || '').toLowerCase().includes('unique')) {
+      return err('This target variant already exists for the segment', 409);
+    }
+    throw e;
+  }
+}
+
+async function handleUpdateSegmentVariant(request, env, segmentId, variantId) {
+  let body;
+  try { body = await request.json(); }
+  catch { return err('Request body must be valid JSON'); }
+
+  const { errors, payload } = sanitizeSegmentVariantPayload(body);
+  if (errors.length) return invalidPayload(errors);
+
+  const segment = await env.DB.prepare(`
+    SELECT id, source_lang
+    FROM segments
+    WHERE id = ?
+  `).bind(segmentId).first();
+  if (!segment) return err('Segment not found', 404);
+  if (payload.target_lang === segment.source_lang) {
+    return err('target_lang must be different from source_lang');
+  }
+
+  const existingVariant = await env.DB.prepare(`
+    SELECT id
+    FROM segment_variants
+    WHERE id = ? AND segment_id = ?
+  `).bind(variantId, segmentId).first();
+  if (!existingVariant) return err('Variant not found', 404);
+
+  try {
+    await env.DB.prepare(`
+      UPDATE segment_variants
+      SET target_lang = ?,
+          target_text = ?,
+          verified = ?,
+          notes = ?
+      WHERE id = ? AND segment_id = ?
+    `).bind(
+      payload.target_lang,
+      payload.target_text,
+      payload.verified ? 1 : 0,
+      payload.notes,
+      variantId,
+      segmentId
+    ).run();
+
+    if (payload.preferred) {
+      await applySegmentVariantPreferred(env, segmentId, payload.target_lang, variantId);
+    } else {
+      await env.DB.prepare(`
+        UPDATE segment_variants
+        SET preferred = 0
+        WHERE id = ? AND segment_id = ?
+      `).bind(variantId, segmentId).run();
+    }
+
+    await env.DB.prepare(
+      `UPDATE segments SET updated_at = datetime('now') WHERE id = ?`
+    ).bind(segmentId).run();
+
+    return json({ success: true });
+  } catch (e) {
+    if (String(e.message || '').toLowerCase().includes('unique')) {
+      return err('This target variant already exists for the segment', 409);
+    }
+    throw e;
+  }
+}
+
+async function handleDeleteSegmentVariant(request, env, segmentId, variantId) {
+  const existingVariant = await env.DB.prepare(`
+    SELECT id
+    FROM segment_variants
+    WHERE id = ? AND segment_id = ?
+  `).bind(variantId, segmentId).first();
+  if (!existingVariant) return err('Variant not found', 404);
+
+  await env.DB.prepare(`
+    DELETE FROM segment_variants
+    WHERE id = ? AND segment_id = ?
+  `).bind(variantId, segmentId).run();
+
+  await env.DB.prepare(
+    `UPDATE segments SET updated_at = datetime('now') WHERE id = ?`
+  ).bind(segmentId).run();
+
+  return json({ success: true });
+}
+
 async function router(request, env) {
   const { pathname } = new URL(request.url);
   const method = request.method;
@@ -1140,12 +1509,36 @@ async function router(request, env) {
     if (method === 'GET' && pathname === '/api/admin/stats') return handleAdminStats(request, env);
     if (method === 'GET' && pathname === '/api/admin/names') return handleListNames(request, env);
     if (method === 'POST' && pathname === '/api/admin/names') return handleCreateName(request, env);
+    if (method === 'GET' && pathname === '/api/admin/segments') return handleListSegments(request, env);
+    if (method === 'POST' && pathname === '/api/admin/segments') return handleCreateSegment(request, env);
 
     const nameMatch = pathname.match(/^\/api\/admin\/names\/(\d+)$/);
     if (nameMatch) {
       const id = parseInt(nameMatch[1], 10);
       if (method === 'PUT') return handleUpdateName(request, env, id);
       if (method === 'DELETE') return handleDeleteName(request, env, id);
+    }
+
+    const segmentMatch = pathname.match(/^\/api\/admin\/segments\/(\d+)$/);
+    if (segmentMatch) {
+      const id = parseInt(segmentMatch[1], 10);
+      if (method === 'PUT') return handleUpdateSegment(request, env, id);
+      if (method === 'DELETE') return handleDeleteSegment(request, env, id);
+    }
+
+    const segmentVariantsMatch = pathname.match(/^\/api\/admin\/segments\/(\d+)\/variants$/);
+    if (segmentVariantsMatch) {
+      const segmentId = parseInt(segmentVariantsMatch[1], 10);
+      if (method === 'GET') return handleListSegmentVariants(request, env, segmentId);
+      if (method === 'POST') return handleCreateSegmentVariant(request, env, segmentId);
+    }
+
+    const singleVariantMatch = pathname.match(/^\/api\/admin\/segments\/(\d+)\/variants\/(\d+)$/);
+    if (singleVariantMatch) {
+      const segmentId = parseInt(singleVariantMatch[1], 10);
+      const variantId = parseInt(singleVariantMatch[2], 10);
+      if (method === 'PUT') return handleUpdateSegmentVariant(request, env, segmentId, variantId);
+      if (method === 'DELETE') return handleDeleteSegmentVariant(request, env, segmentId, variantId);
     }
 
     if (method === 'GET' && pathname === '/api/admin/suggestions') return handleListSuggestions(request, env);

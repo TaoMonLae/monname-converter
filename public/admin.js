@@ -13,8 +13,13 @@ const API = '/api';
 let currentNamesPage = 1;
 let currentNamesQuery = '';
 let currentSuggestionStatus = 'pending';
+let currentSegmentsPage = 1;
+let currentSegmentsQuery = '';
+let currentSegmentsSourceLang = 'all';
 let allNames = [];           // local copy for client-side filter
+let allSegments = [];
 let editingAliases = [];     // aliases currently in the modal
+let currentSegmentVariants = [];
 
 // ── DOM refs ─────────────────────────────────────────────────
 const loginScreen     = document.getElementById('loginScreen');
@@ -28,6 +33,7 @@ const logoutBtn       = document.getElementById('logoutBtn');
 const navItems        = document.querySelectorAll('.sidebar-nav__item');
 const panelNames      = document.getElementById('panelNames');
 const panelSuggestions = document.getElementById('panelSuggestions');
+const panelSegments = document.getElementById('panelSegments');
 
 const createNameBtn   = document.getElementById('createNameBtn');
 const nameModal       = document.getElementById('nameModal');
@@ -42,12 +48,34 @@ const aliasRows       = document.getElementById('aliasRows');
 const namesTableBody  = document.getElementById('namesTableBody');
 const nameFilter      = document.getElementById('nameFilter');
 const namesPagination = document.getElementById('namesPagination');
+const createSegmentBtn = document.getElementById('createSegmentBtn');
+const segmentFilter = document.getElementById('segmentFilter');
+const segmentLangFilter = document.getElementById('segmentLangFilter');
+const segmentsTableBody = document.getElementById('segmentsTableBody');
+const segmentsPagination = document.getElementById('segmentsPagination');
+
+const segmentModal = document.getElementById('segmentModal');
+const segmentModalTitle = document.getElementById('segmentModalTitle');
+const segmentModalClose = document.getElementById('segmentModalClose');
+const segmentModalCancel = document.getElementById('segmentModalCancel');
+const segmentModalSave = document.getElementById('segmentModalSave');
+const segmentModalAlert = document.getElementById('segmentModalAlert');
+
+const variantModal = document.getElementById('variantModal');
+const variantModalTitle = document.getElementById('variantModalTitle');
+const variantModalClose = document.getElementById('variantModalClose');
+const variantModalCloseBtn = document.getElementById('variantModalCloseBtn');
+const addVariantBtn = document.getElementById('addVariantBtn');
+const variantsContainer = document.getElementById('variantsContainer');
+const variantSegmentMeta = document.getElementById('variantSegmentMeta');
+const variantModalAlert = document.getElementById('variantModalAlert');
 
 const suggestionsContainer = document.getElementById('suggestionsContainer');
 const suggTabs        = document.querySelectorAll('.tab-btn[data-status]');
 
 const namesBadge      = document.getElementById('namesBadge');
 const suggBadge       = document.getElementById('suggBadge');
+const segmentsBadge   = document.getElementById('segmentsBadge');
 const statTotal       = document.getElementById('statTotal');
 const statVerified    = document.getElementById('statVerified');
 const statPending     = document.getElementById('statPending');
@@ -158,7 +186,9 @@ navItems.forEach(item => {
     const panel = item.dataset.panel;
     panelNames.style.display       = panel === 'names'       ? 'block' : 'none';
     panelSuggestions.style.display = panel === 'suggestions' ? 'block' : 'none';
+    panelSegments.style.display    = panel === 'segments'    ? 'block' : 'none';
     if (panel === 'suggestions') loadSuggestions(currentSuggestionStatus);
+    if (panel === 'segments') loadSegments(currentSegmentsPage, currentSegmentsQuery, currentSegmentsSourceLang);
   });
 });
 
@@ -181,6 +211,7 @@ async function initDashboard() {
   await Promise.all([
     loadStats(),
     loadNames(1, currentNamesQuery),
+    loadSegments(1, currentSegmentsQuery, currentSegmentsSourceLang),
   ]);
 }
 
@@ -434,6 +465,316 @@ function clearNameForm() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ── Segments CRUD + Variants ───────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+async function loadSegments(page = 1, query = currentSegmentsQuery, sourceLang = currentSegmentsSourceLang) {
+  currentSegmentsPage = page;
+  currentSegmentsQuery = (query || '').trim();
+  currentSegmentsSourceLang = sourceLang || 'all';
+  segmentsTableBody.innerHTML = `<tr><td colspan="6"><div class="spinner"></div></td></tr>`;
+
+  try {
+    const params = new URLSearchParams({ page: String(page) });
+    if (currentSegmentsQuery) params.set('q', currentSegmentsQuery);
+    if (currentSegmentsSourceLang && currentSegmentsSourceLang !== 'all') {
+      params.set('source_lang', currentSegmentsSourceLang);
+    }
+    const data = await apiFetch(`${API}/admin/segments?${params.toString()}`);
+    allSegments = data.results || [];
+    if (segmentFilter.value !== currentSegmentsQuery) segmentFilter.value = currentSegmentsQuery;
+    if (segmentLangFilter.value !== currentSegmentsSourceLang) segmentLangFilter.value = currentSegmentsSourceLang;
+    segmentsBadge.textContent = data.total;
+    renderSegmentsTable(allSegments);
+    renderSegmentsPagination(data.page, data.totalPages);
+  } catch (e) {
+    segmentsTableBody.innerHTML = `<tr><td colspan="6"><div class="alert alert--danger">${escHtml(e.message)}</div></td></tr>`;
+  }
+}
+
+let segmentsSearchDebounceTimer;
+segmentFilter.addEventListener('input', () => {
+  clearTimeout(segmentsSearchDebounceTimer);
+  const nextQuery = segmentFilter.value.trim();
+  segmentsSearchDebounceTimer = setTimeout(() => {
+    loadSegments(1, nextQuery, segmentLangFilter.value);
+  }, 250);
+});
+
+segmentLangFilter.addEventListener('change', () => {
+  loadSegments(1, segmentFilter.value.trim(), segmentLangFilter.value);
+});
+
+function renderSegmentsTable(segments) {
+  if (!segments.length) {
+    segmentsTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:var(--space-xl)">No segments found.</td></tr>`;
+    return;
+  }
+
+  segmentsTableBody.innerHTML = segments.map(segment => `
+    <tr>
+      <td>${escHtml(segment.source_text)}</td>
+      <td><span class="badge badge--neutral">${capitalize(segment.source_lang)}</span></td>
+      <td class="truncate" style="max-width:220px; font-size:0.82rem; color:var(--text-muted)">${escHtml(segment.meaning || '—')}</td>
+      <td>${segment.variant_count || 0}</td>
+      <td>
+        ${segment.verified
+          ? '<span class="badge badge--verified">Verified</span>'
+          : '<span class="badge badge--pending">Unverified</span>'}
+      </td>
+      <td>
+        <div class="td-actions">
+          <button class="btn btn--ghost btn--sm" onclick="openSegmentModal(${segment.id})">Edit</button>
+          <button class="btn btn--ghost btn--sm" onclick="openVariantModal(${segment.id})">Variants</button>
+          <button class="btn btn--danger btn--sm" onclick="deleteSegment(${segment.id})">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderSegmentsPagination(page, totalPages) {
+  if (totalPages <= 1) { segmentsPagination.innerHTML = ''; return; }
+  const pages = [];
+  for (let i = 1; i <= totalPages; i++) {
+    pages.push(`<button class="pag-btn ${i === page ? 'active' : ''}" onclick="loadSegments(${i})">${i}</button>`);
+  }
+  segmentsPagination.innerHTML = `
+    <button class="pag-btn" onclick="loadSegments(${page - 1})" ${page <= 1 ? 'disabled' : ''}>←</button>
+    ${pages.join('')}
+    <button class="pag-btn" onclick="loadSegments(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>→</button>
+  `;
+}
+
+createSegmentBtn.addEventListener('click', () => {
+  document.getElementById('editSegmentId').value = '';
+  segmentModalTitle.textContent = 'New Segment';
+  clearSegmentForm();
+  openModal(segmentModal);
+});
+
+function openSegmentModal(id) {
+  const segment = allSegments.find(s => s.id === id);
+  if (!segment) return;
+  document.getElementById('editSegmentId').value = id;
+  segmentModalTitle.textContent = `Edit segment: ${segment.source_text}`;
+  document.getElementById('seg-source-text').value = segment.source_text || '';
+  document.getElementById('seg-source-lang').value = segment.source_lang || 'mon';
+  document.getElementById('seg-meaning').value = segment.meaning || '';
+  document.getElementById('seg-verified').checked = !!segment.verified;
+  hideAlert(segmentModalAlert);
+  openModal(segmentModal);
+}
+
+segmentModalSave.addEventListener('click', async () => {
+  const id = document.getElementById('editSegmentId').value;
+  const payload = {
+    source_text: document.getElementById('seg-source-text').value.trim(),
+    source_lang: document.getElementById('seg-source-lang').value,
+    meaning: document.getElementById('seg-meaning').value.trim(),
+    verified: document.getElementById('seg-verified').checked,
+  };
+
+  if (!payload.source_text) {
+    showAlert(segmentModalAlert, 'Source text is required.', 'danger');
+    return;
+  }
+
+  segmentModalSave.disabled = true;
+  segmentModalSave.textContent = 'Saving…';
+  try {
+    if (id) {
+      await apiFetch(`${API}/admin/segments/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch(`${API}/admin/segments`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+    closeModal(segmentModal);
+    await loadSegments(currentSegmentsPage, currentSegmentsQuery, currentSegmentsSourceLang);
+  } catch (e) {
+    showAlert(segmentModalAlert, e.message || 'Save failed', 'danger');
+  } finally {
+    segmentModalSave.disabled = false;
+    segmentModalSave.textContent = 'Save segment';
+  }
+});
+
+segmentModalClose.addEventListener('click', () => closeModal(segmentModal));
+segmentModalCancel.addEventListener('click', () => closeModal(segmentModal));
+segmentModal.addEventListener('click', e => { if (e.target === segmentModal) closeModal(segmentModal); });
+
+async function deleteSegment(id) {
+  const segment = allSegments.find(s => s.id === id);
+  const label = segment ? `${segment.source_text} (${segment.source_lang})` : `Segment #${id}`;
+  if (!confirm(`Delete ${label}? This also deletes all its variants.`)) return;
+  try {
+    await apiFetch(`${API}/admin/segments/${id}`, { method: 'DELETE' });
+    await loadSegments(currentSegmentsPage, currentSegmentsQuery, currentSegmentsSourceLang);
+  } catch (e) {
+    alert(`Failed to delete segment: ${e.message}`);
+  }
+}
+
+function clearSegmentForm() {
+  document.getElementById('seg-source-text').value = '';
+  document.getElementById('seg-source-lang').value = 'mon';
+  document.getElementById('seg-meaning').value = '';
+  document.getElementById('seg-verified').checked = false;
+  hideAlert(segmentModalAlert);
+}
+
+async function openVariantModal(segmentId) {
+  const segment = allSegments.find(s => s.id === segmentId);
+  if (!segment) return;
+  document.getElementById('variantSegmentId').value = segmentId;
+  variantModalTitle.textContent = `Variants: ${segment.source_text}`;
+  variantSegmentMeta.textContent = `Source language: ${capitalize(segment.source_lang)} • Segment status: ${segment.verified ? 'Verified' : 'Unverified'}`;
+  hideAlert(variantModalAlert);
+  openModal(variantModal);
+  await loadSegmentVariants(segmentId);
+}
+
+async function loadSegmentVariants(segmentId) {
+  variantsContainer.innerHTML = '<div class="spinner"></div>';
+  try {
+    const data = await apiFetch(`${API}/admin/segments/${segmentId}/variants`);
+    currentSegmentVariants = data.results || [];
+    renderVariantRows(data.segment, currentSegmentVariants);
+  } catch (e) {
+    variantsContainer.innerHTML = `<div class="alert alert--danger">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderVariantRows(segment, variants) {
+  if (!variants.length) {
+    variantsContainer.innerHTML = '<p class="text-muted">No variants yet. Add one.</p>';
+    return;
+  }
+
+  variantsContainer.innerHTML = variants.map(variant => `
+    <div class="sugg-card" style="padding:var(--space-md); margin-bottom:var(--space-sm)">
+      <div class="sugg-card__body">
+        <div style="display:grid; grid-template-columns:140px 1fr; gap:var(--space-sm); align-items:center">
+          <div>
+            <label class="text-small text-muted">Target language</label>
+            <select onchange="editVariantField(${variant.id}, 'target_lang', this.value)">
+              <option value="mon" ${variant.target_lang === 'mon' ? 'selected' : ''} ${segment.source_lang === 'mon' ? 'disabled' : ''}>Mon</option>
+              <option value="burmese" ${variant.target_lang === 'burmese' ? 'selected' : ''} ${segment.source_lang === 'burmese' ? 'disabled' : ''}>Burmese</option>
+              <option value="english" ${variant.target_lang === 'english' ? 'selected' : ''} ${segment.source_lang === 'english' ? 'disabled' : ''}>English</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-small text-muted">Target text</label>
+            <input type="text" value="${escHtml(variant.target_text)}" onchange="editVariantField(${variant.id}, 'target_text', this.value)" />
+          </div>
+          <div style="grid-column:1 / -1">
+            <label class="text-small text-muted">Notes</label>
+            <input type="text" value="${escHtml(variant.notes || '')}" onchange="editVariantField(${variant.id}, 'notes', this.value)" />
+          </div>
+        </div>
+        <div style="margin-top:var(--space-sm); display:flex; gap:var(--space-sm); align-items:center; flex-wrap:wrap;">
+          <label><input type="checkbox" ${variant.verified ? 'checked' : ''} onchange="editVariantField(${variant.id}, 'verified', this.checked)" /> Verified</label>
+          <label><input type="checkbox" ${variant.preferred ? 'checked' : ''} onchange="editVariantField(${variant.id}, 'preferred', this.checked)" /> Preferred for ${variant.target_lang}</label>
+          <button class="btn btn--primary btn--sm" onclick="saveVariant(${segment.id}, ${variant.id})">Save</button>
+          <button class="btn btn--danger btn--sm" onclick="deleteVariant(${segment.id}, ${variant.id})">Delete</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+addVariantBtn.addEventListener('click', () => {
+  const segmentId = Number(document.getElementById('variantSegmentId').value);
+  if (!segmentId) return;
+  const segment = allSegments.find(s => s.id === segmentId);
+  const defaultLang = ['english', 'mon', 'burmese'].find(lang => lang !== segment?.source_lang) || 'english';
+  const rowId = `new-${Date.now()}`;
+  currentSegmentVariants.unshift({
+    id: rowId,
+    segment_id: segmentId,
+    target_lang: defaultLang,
+    target_text: '',
+    preferred: false,
+    verified: false,
+    notes: '',
+    isNew: true,
+  });
+  renderVariantRows(segment, currentSegmentVariants);
+});
+
+function editVariantField(variantId, field, value) {
+  const idx = currentSegmentVariants.findIndex(v => String(v.id) === String(variantId));
+  if (idx === -1) return;
+  currentSegmentVariants[idx][field] = value;
+}
+
+async function saveVariant(segmentId, variantId) {
+  const variant = currentSegmentVariants.find(v => String(v.id) === String(variantId));
+  if (!variant) return;
+  if (!variant.target_text || !variant.target_text.trim()) {
+    showAlert(variantModalAlert, 'Target text is required for variants.', 'danger');
+    return;
+  }
+
+  const payload = {
+    target_lang: variant.target_lang,
+    target_text: variant.target_text.trim(),
+    preferred: !!variant.preferred,
+    verified: !!variant.verified,
+    notes: (variant.notes || '').trim(),
+  };
+
+  try {
+    if (variant.isNew) {
+      await apiFetch(`${API}/admin/segments/${segmentId}/variants`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await apiFetch(`${API}/admin/segments/${segmentId}/variants/${variant.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    }
+    hideAlert(variantModalAlert);
+    await loadSegmentVariants(segmentId);
+    await loadSegments(currentSegmentsPage, currentSegmentsQuery, currentSegmentsSourceLang);
+  } catch (e) {
+    showAlert(variantModalAlert, e.message || 'Failed to save variant', 'danger');
+  }
+}
+
+async function deleteVariant(segmentId, variantId) {
+  const variant = currentSegmentVariants.find(v => String(v.id) === String(variantId));
+  if (!variant) return;
+
+  if (variant.isNew) {
+    currentSegmentVariants = currentSegmentVariants.filter(v => String(v.id) !== String(variantId));
+    const segment = allSegments.find(s => s.id === segmentId);
+    renderVariantRows(segment, currentSegmentVariants);
+    return;
+  }
+
+  if (!confirm('Delete this variant?')) return;
+  try {
+    await apiFetch(`${API}/admin/segments/${segmentId}/variants/${variantId}`, { method: 'DELETE' });
+    await loadSegmentVariants(segmentId);
+    await loadSegments(currentSegmentsPage, currentSegmentsQuery, currentSegmentsSourceLang);
+  } catch (e) {
+    showAlert(variantModalAlert, e.message || 'Failed to delete variant', 'danger');
+  }
+}
+
+variantModalClose.addEventListener('click', () => closeModal(variantModal));
+variantModalCloseBtn.addEventListener('click', () => closeModal(variantModal));
+variantModal.addEventListener('click', e => { if (e.target === variantModal) closeModal(variantModal); });
+
+// ═══════════════════════════════════════════════════════════
 // ── Suggestions ─────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
 
@@ -606,6 +947,13 @@ window.removeAlias      = removeAlias;
 window.reviewSuggestion = reviewSuggestion;
 window.promptReject     = promptReject;
 window.loadNames        = loadNames;
+window.loadSegments     = loadSegments;
+window.openSegmentModal = openSegmentModal;
+window.deleteSegment    = deleteSegment;
+window.openVariantModal = openVariantModal;
+window.editVariantField = editVariantField;
+window.saveVariant      = saveVariant;
+window.deleteVariant    = deleteVariant;
 
 // ── Night mode toggle ─────────────────────────────────────────
 (function initTheme() {
