@@ -242,12 +242,14 @@ function rebuildFromWordTokens() {
   const toLang2 = LANGS.filter(l => l !== fromLang)[1];
 
   function assemble(lang) {
+    // Preserve separatorBefore so variant changes keep original spacing/punctuation between segments.
     return wordResults.map(wr => {
       const opts = Array.isArray(wr.options) ? wr.options : [];
       const idx  = wr.selectedIndex || 0;
       const opt  = opts[idx] || opts[0];
-      return opt ? (opt[lang] || '') : (wr.source || '');
-    }).join('');
+      const text = opt ? ((opt[lang] || opt[fromLang] || wr.source || '')) : (wr.source || '');
+      return `${wr.separatorBefore || ''}${text || ''}`;
+    }).join('').trim();
   }
 
   if (toLang1) columnResults[toLang1] = assemble(toLang1);
