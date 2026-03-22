@@ -7,11 +7,67 @@ const json = (data, status = 200) =>
 const err = (message, status = 400) => json({ error: message }, status);
 const invalidPayload = details => json({ error: 'Invalid payload', details }, 400);
 
-function withCors(response) {
+function requestOriginFromUrl(url) {
+  return `${url.protocol}//${url.host}`;
+}
+
+function isLocalhostOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+function resolveAdminCorsOrigin(request, env, url) {
+  const origin = request.headers.get('Origin');
+  if (!origin) return null;
+
+  const requestOrigin = requestOriginFromUrl(url);
+  if (origin === requestOrigin) return origin;
+
+  // Optional override for admin frontends hosted on a separate origin.
+  if (env.ADMIN_CORS_ORIGIN && origin === env.ADMIN_CORS_ORIGIN) return origin;
+
+  // Keep local development flexible when using separate dev servers.
+  if (isLocalhostOrigin(origin) && isLocalhostOrigin(requestOrigin)) return origin;
+
+  return null;
+}
+
+function withCors(request, env, response) {
+  const url = new URL(request.url);
+  const isApiRoute = url.pathname.startsWith('/api/');
+  const isAdminRoute = url.pathname.startsWith('/api/admin/');
   const headers = new Headers(response.headers);
-  headers.set('Access-Control-Allow-Origin', '*');
-  headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (isApiRoute && !isAdminRoute) {
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  } else if (isApiRoute && isAdminRoute) {
+    const allowedOrigin = resolveAdminCorsOrigin(request, env, url);
+    if (allowedOrigin) {
+      headers.set('Access-Control-Allow-Origin', allowedOrigin);
+      headers.set('Access-Control-Allow-Credentials', 'true');
+      headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      headers.set('Access-Control-Allow-Headers', 'Content-Type');
+      headers.set('Vary', 'Origin');
+    }
+  }
+
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (url.protocol === 'https:') {
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  if (isAdminRoute) {
+    headers.set('Cache-Control', 'no-store');
+  }
+
   return new Response(response.body, { status: response.status, headers });
 }
 
@@ -82,8 +138,37 @@ function getCookie(request, name) {
   return null;
 }
 
-function sessionCookie(token, maxAge = 86400) {
-  return `admin_session=${token}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=${maxAge}`;
+function shouldUseSecureCookie(request, env) {
+  if (env?.FORCE_SECURE_COOKIES === 'true') return true;
+  if (env?.FORCE_SECURE_COOKIES === 'false') return false;
+
+  try {
+    const url = new URL(request.url);
+    if (url.protocol === 'https:') return true;
+  } catch {}
+
+  const xForwardedProto = request.headers.get('X-Forwarded-Proto');
+  if (xForwardedProto && xForwardedProto.split(',')[0].trim().toLowerCase() === 'https') {
+    return true;
+  }
+
+  return false;
+}
+
+function buildAdminSessionCookie(request, env, token, maxAge = 86400) {
+  const attributes = [
+    `admin_session=${token}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/api/admin',
+    `Max-Age=${maxAge}`,
+  ];
+
+  if (shouldUseSecureCookie(request, env)) {
+    attributes.push('Secure');
+  }
+
+  return attributes.join('; ');
 }
 
 const ADMIN_LOGIN_LIMIT_MAX_FAILURES = 5;
@@ -787,7 +872,7 @@ async function handleLogin(request, env) {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Set-Cookie': sessionCookie(token),
+      'Set-Cookie': buildAdminSessionCookie(request, env, token),
     },
   });
 }
@@ -801,7 +886,7 @@ async function handleLogout(request, env) {
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Set-Cookie': sessionCookie('', 0),
+      'Set-Cookie': buildAdminSessionCookie(request, env, '', 0),
     },
   });
 }
@@ -1051,10 +1136,10 @@ export default {
   async fetch(request, env) {
     try {
       const response = await router(request, env);
-      return withCors(response);
+      return withCors(request, env, response);
     } catch (e) {
       console.error('Unhandled worker error:', e);
-      return withCors(err('Internal server error', 500));
+      return withCors(request, env, err('Internal server error', 500));
     }
   },
 };
