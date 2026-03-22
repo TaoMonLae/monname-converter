@@ -86,6 +86,68 @@ function sessionCookie(token, maxAge = 86400) {
   return `admin_session=${token}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=${maxAge}`;
 }
 
+const ADMIN_LOGIN_LIMIT_MAX_FAILURES = 5;
+const ADMIN_LOGIN_LIMIT_WINDOW_MINUTES = 15;
+
+function getClientIp(request) {
+  const cfIp = request.headers.get('CF-Connecting-IP');
+  if (cfIp) return cfIp.trim();
+
+  const xff = request.headers.get('X-Forwarded-For');
+  if (!xff) return null;
+  const firstHop = xff.split(',')[0]?.trim();
+  return firstHop || null;
+}
+
+async function getLoginRateLimitState(env, ip) {
+  const windowExpr = `-${ADMIN_LOGIN_LIMIT_WINDOW_MINUTES} minutes`;
+  const state = await env.DB.prepare(
+    `SELECT
+      COUNT(*) AS failures_in_window,
+      MIN(attempted_at) AS oldest_attempt_in_window
+    FROM admin_login_failures
+    WHERE ip = ?
+      AND attempted_at >= datetime('now', ?)`
+  ).bind(ip, windowExpr).first();
+
+  const failuresInWindow = Number(state?.failures_in_window || 0);
+  if (failuresInWindow < ADMIN_LOGIN_LIMIT_MAX_FAILURES) {
+    return { limited: false };
+  }
+
+  let retryAfterSeconds = 0;
+  if (state?.oldest_attempt_in_window) {
+    const oldestMs = Date.parse(`${state.oldest_attempt_in_window}Z`);
+    if (!Number.isNaN(oldestMs)) {
+      const releaseMs = oldestMs + ADMIN_LOGIN_LIMIT_WINDOW_MINUTES * 60 * 1000;
+      retryAfterSeconds = Math.max(1, Math.ceil((releaseMs - Date.now()) / 1000));
+    }
+  }
+
+  return {
+    limited: true,
+    retryAfterSeconds,
+  };
+}
+
+async function recordFailedLoginAttempt(env, ip) {
+  await env.DB.prepare(
+    `INSERT INTO admin_login_failures (ip) VALUES (?)`
+  ).bind(ip).run();
+
+  await env.DB.prepare(
+    `DELETE FROM admin_login_failures
+     WHERE ip = ?
+       AND attempted_at < datetime('now', ?)`
+  ).bind(ip, `-${ADMIN_LOGIN_LIMIT_WINDOW_MINUTES} minutes`).run();
+}
+
+async function clearFailedLoginAttempts(env, ip) {
+  await env.DB.prepare(
+    `DELETE FROM admin_login_failures WHERE ip = ?`
+  ).bind(ip).run();
+}
+
 function isValidLang(lang) {
   return lang === 'mon' || lang === 'burmese' || lang === 'english';
 }
@@ -688,8 +750,29 @@ async function handleLogin(request, env) {
   try { body = await request.json(); }
   catch { return err('Request body must be valid JSON'); }
 
+  const clientIp = getClientIp(request);
+  if (clientIp) {
+    const rateLimit = await getLoginRateLimitState(env, clientIp);
+    if (rateLimit.limited) {
+      const payload = {
+        error: 'Too many failed login attempts. Please try again shortly.',
+      };
+      if (rateLimit.retryAfterSeconds) {
+        payload.retryAfterSeconds = rateLimit.retryAfterSeconds;
+      }
+      return json(payload, 429);
+    }
+  }
+
   if (!body.password || body.password !== env.ADMIN_PASSWORD) {
+    if (clientIp) {
+      await recordFailedLoginAttempt(env, clientIp);
+    }
     return err('Invalid password', 401);
+  }
+
+  if (clientIp) {
+    await clearFailedLoginAttempts(env, clientIp);
   }
 
   const token = randomToken();
