@@ -5,6 +5,7 @@ const json = (data, status = 200) =>
   });
 
 const err = (message, status = 400) => json({ error: message }, status);
+const invalidPayload = details => json({ error: 'Invalid payload', details }, 400);
 
 function withCors(response) {
   const headers = new Headers(response.headers);
@@ -95,6 +96,103 @@ function sourceColumn(lang) {
 
 function collapseSpaces(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+const VALID_LANGUAGES = ['mon', 'burmese', 'english'];
+const VALID_GENDERS = ['male', 'female', 'neutral'];
+const FIELD_LIMITS = {
+  mon: 120,
+  burmese: 120,
+  english: 120,
+  meaning: 300,
+  alias: 120,
+  submitted_by: 80,
+};
+
+function sanitizeLimitedText(value, fieldName, errors, { maxLength, allowNull = true } = {}) {
+  if (value === undefined || value === null) return allowNull ? null : '';
+  if (typeof value !== 'string') {
+    errors.push(`${fieldName} must be a string`);
+    return null;
+  }
+
+  const normalized = collapseSpaces(value);
+  if (!normalized) return null;
+
+  if (maxLength && normalized.length > maxLength) {
+    errors.push(`${fieldName} must be ${maxLength} characters or fewer`);
+  }
+  return normalized;
+}
+
+function sanitizeAliasesInput(rawAliases, errors, { allowUndefined = true } = {}) {
+  if (rawAliases === undefined) return allowUndefined ? undefined : [];
+  if (rawAliases === null) return [];
+  if (!Array.isArray(rawAliases)) {
+    errors.push('aliases must be an array');
+    return [];
+  }
+
+  const seen = new Set();
+  const clean = [];
+
+  for (let i = 0; i < rawAliases.length; i++) {
+    const entry = rawAliases[i];
+    if (!entry || typeof entry !== 'object') {
+      errors.push(`aliases[${i}] must be an object with alias and language`);
+      continue;
+    }
+
+    const alias = sanitizeLimitedText(entry.alias, `aliases[${i}].alias`, errors, {
+      maxLength: FIELD_LIMITS.alias,
+    });
+    if (!alias) continue;
+
+    const language = VALID_LANGUAGES.includes(entry.language) ? entry.language : 'english';
+    const dedupeKey = `${language}||${alias.toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+
+    seen.add(dedupeKey);
+    clean.push({ alias, language });
+  }
+
+  return clean;
+}
+
+function sanitizeNamePayload(body, { includeSubmittedBy = false, aliasesOptional = true } = {}) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return { errors: ['Request body must be a JSON object'] };
+  }
+
+  const errors = [];
+  const mon = sanitizeLimitedText(body.mon, 'mon', errors, { maxLength: FIELD_LIMITS.mon });
+  const burmese = sanitizeLimitedText(body.burmese, 'burmese', errors, { maxLength: FIELD_LIMITS.burmese });
+  const english = sanitizeLimitedText(body.english, 'english', errors, { maxLength: FIELD_LIMITS.english });
+  const meaning = sanitizeLimitedText(body.meaning, 'meaning', errors, { maxLength: FIELD_LIMITS.meaning });
+  const aliases = sanitizeAliasesInput(body.aliases, errors, { allowUndefined: aliasesOptional });
+
+  if (!mon && !burmese && !english) {
+    errors.push('At least one of mon, burmese, or english is required');
+  }
+
+  const safeGender = VALID_GENDERS.includes(body.gender) ? body.gender : 'neutral';
+  const payload = {
+    mon,
+    burmese,
+    english,
+    meaning,
+    gender: safeGender,
+    verified: !!body.verified,
+    aliases,
+  };
+
+  if (includeSubmittedBy) {
+    payload.submitted_by = sanitizeLimitedText(body.submitted_by, 'submitted_by', errors, {
+      maxLength: FIELD_LIMITS.submitted_by,
+    });
+  }
+
+  return { errors, payload };
 }
 
 function toOptionFromName(row) {
@@ -562,32 +660,20 @@ async function handleSuggest(request, env) {
   try { body = await request.json(); }
   catch { return err('Request body must be valid JSON'); }
 
-  const { mon, burmese, english, meaning, gender, submitted_by, aliases } = body;
+  const { errors, payload } = sanitizeNamePayload(body, { includeSubmittedBy: true, aliasesOptional: true });
+  if (errors.length) return invalidPayload(errors);
 
-  if (!mon && !burmese && !english) {
-    return err('At least one name field (Mon, Burmese, or English) is required');
-  }
-
-  const validGenders = ['male', 'female', 'neutral'];
-  const safeGender = validGenders.includes(gender) ? gender : 'neutral';
-
-  let aliasesJson = null;
-  if (Array.isArray(aliases) && aliases.length > 0) {
-    const validLangs = ['mon', 'burmese', 'english'];
-    const clean = aliases
-      .filter(a => a && typeof a.alias === 'string' && a.alias.trim())
-      .map(a => ({ alias: a.alias.trim(), language: validLangs.includes(a.language) ? a.language : 'english' }));
-
-    if (clean.length > 0) aliasesJson = JSON.stringify(clean);
-  }
+  const aliasesJson = Array.isArray(payload.aliases) && payload.aliases.length > 0
+    ? JSON.stringify(payload.aliases)
+    : null;
 
   try {
     await env.DB.prepare(`
       INSERT INTO suggestions (mon, burmese, english, meaning, gender, submitted_by, aliases_json)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      mon || null, burmese || null, english || null,
-      meaning || null, safeGender, submitted_by || null, aliasesJson
+      payload.mon, payload.burmese, payload.english,
+      payload.meaning, payload.gender, payload.submitted_by, aliasesJson
     ).run();
 
     return json({ success: true, message: 'Thank you! Your suggestion has been submitted for review.' }, 201);
@@ -684,28 +770,25 @@ async function handleCreateName(request, env) {
   try { body = await request.json(); }
   catch { return err('Request body must be valid JSON'); }
 
-  const { mon, burmese, english, meaning, gender, verified, aliases } = body;
-  if (!mon && !burmese && !english) return err('At least one name field is required');
-
-  const validGenders = ['male', 'female', 'neutral'];
-  const safeGender = validGenders.includes(gender) ? gender : 'neutral';
+  const { errors, payload } = sanitizeNamePayload(body, { aliasesOptional: true });
+  if (errors.length) return invalidPayload(errors);
 
   const result = await env.DB.prepare(`
     INSERT INTO names (mon, burmese, english, meaning, gender, verified)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(
-    mon || null, burmese || null, english || null,
-    meaning || null, safeGender, verified ? 1 : 0
+    payload.mon, payload.burmese, payload.english,
+    payload.meaning, payload.gender, payload.verified ? 1 : 0
   ).run();
 
   const nameId = result.meta.last_row_id;
 
-  if (Array.isArray(aliases) && aliases.length > 0) {
-    for (const { alias, language } of aliases) {
-      if (alias && ['mon', 'burmese', 'english'].includes(language)) {
+  if (Array.isArray(payload.aliases) && payload.aliases.length > 0) {
+    for (const { alias, language } of payload.aliases) {
+      if (alias && VALID_LANGUAGES.includes(language)) {
         await env.DB.prepare(
-          'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-        ).bind(nameId, alias.trim(), language).run();
+          'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
+        ).bind(nameId, alias, language).run();
       }
     }
   }
@@ -718,9 +801,8 @@ async function handleUpdateName(request, env, id) {
   try { body = await request.json(); }
   catch { return err('Request body must be valid JSON'); }
 
-  const { mon, burmese, english, meaning, gender, verified, aliases } = body;
-  const validGenders = ['male', 'female', 'neutral'];
-  const safeGender = validGenders.includes(gender) ? gender : 'neutral';
+  const { errors, payload } = sanitizeNamePayload(body, { aliasesOptional: false });
+  if (errors.length) return invalidPayload(errors);
 
   await env.DB.prepare(`
     UPDATE names
@@ -728,18 +810,18 @@ async function handleUpdateName(request, env, id) {
         gender = ?, verified = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(
-    mon || null, burmese || null, english || null,
-    meaning || null, safeGender, verified ? 1 : 0, id
+    payload.mon, payload.burmese, payload.english,
+    payload.meaning, payload.gender, payload.verified ? 1 : 0, id
   ).run();
 
-  if (aliases !== undefined) {
+  if (payload.aliases !== undefined) {
     await env.DB.prepare('DELETE FROM aliases WHERE name_id = ?').bind(id).run();
-    if (Array.isArray(aliases)) {
-      for (const { alias, language } of aliases) {
-        if (alias && ['mon', 'burmese', 'english'].includes(language)) {
+    if (Array.isArray(payload.aliases)) {
+      for (const { alias, language } of payload.aliases) {
+        if (alias && VALID_LANGUAGES.includes(language)) {
           await env.DB.prepare(
-            'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-          ).bind(id, alias.trim(), language).run();
+            'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
+          ).bind(id, alias, language).run();
         }
       }
     }
@@ -812,12 +894,13 @@ async function handleUpdateSuggestion(request, env, id) {
     if (suggestion.aliases_json) {
       let aliases;
       try { aliases = JSON.parse(suggestion.aliases_json); } catch { aliases = []; }
-      const validLangs = ['mon', 'burmese', 'english'];
-      for (const { alias, language } of (aliases || [])) {
-        if (alias && validLangs.includes(language)) {
+      const parseErrors = [];
+      const cleanAliases = sanitizeAliasesInput(aliases, parseErrors, { allowUndefined: false });
+      for (const { alias, language } of (cleanAliases || [])) {
+        if (alias && VALID_LANGUAGES.includes(language)) {
           await env.DB.prepare(
-            'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-          ).bind(approvedNameId, alias.trim(), language).run();
+            'INSERT OR IGNORE INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
+          ).bind(approvedNameId, alias, language).run();
         }
       }
     }
