@@ -108,6 +108,146 @@ function formatName(row) {
   return { ...row, verified: !!row.verified, aliases: parseAliases(row.aliases) };
 }
 
+function csvCell(value) {
+  if (value === null || value === undefined) return '';
+  const s = String(value);
+  if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function toCSV(headers, rows) {
+  const lines = [headers.map(csvCell).join(',')];
+  for (const row of rows) lines.push(row.map(csvCell).join(','));
+  return lines.join('\r\n');
+}
+
+async function handleAdminExport(request, env) {
+  const url = new URL(request.url);
+  const type = url.searchParams.get('type') || 'names';
+  const format = url.searchParams.get('format') || 'csv';
+
+  if (!['names', 'suggestions', 'segments'].includes(type)) {
+    return err('Invalid type. Must be: names, suggestions, or segments');
+  }
+  if (!['csv', 'json'].includes(format)) {
+    return err('Invalid format. Must be: csv or json');
+  }
+
+  const MAX_EXPORT_ROWS = 50000;
+  let data, filename, csvContent;
+
+  if (type === 'names') {
+    const { results } = await env.DB.prepare(`
+      SELECT
+        n.id, n.mon, n.burmese, n.english, n.meaning, n.gender, n.verified, n.created_at, n.updated_at,
+        (SELECT json_group_array(json_object(
+          'alias', a.alias,
+          'language', a.language,
+          'preferred', a.preferred,
+          'variant_group', a.variant_group,
+          'usage_note', a.usage_note
+        )) FROM aliases a WHERE a.name_id = n.id) AS aliases
+      FROM names n
+      ORDER BY n.id ASC
+      LIMIT ?
+    `).bind(MAX_EXPORT_ROWS).all();
+
+    data = results.map(formatName);
+    filename = 'names';
+
+    if (format === 'csv') {
+      const headers = ['id', 'mon', 'burmese', 'english', 'meaning', 'gender', 'verified', 'created_at', 'updated_at', 'aliases'];
+      const rows = data.map(r => [
+        r.id, r.mon, r.burmese, r.english, r.meaning, r.gender,
+        r.verified ? '1' : '0',
+        r.created_at, r.updated_at,
+        JSON.stringify(r.aliases),
+      ]);
+      csvContent = toCSV(headers, rows);
+    }
+
+  } else if (type === 'suggestions') {
+    const { results } = await env.DB.prepare(`
+      SELECT id, mon, burmese, english, meaning, gender, aliases_json,
+             submitted_by, status, admin_notes, approved_name_id, reviewed_at, created_at, updated_at
+      FROM suggestions
+      ORDER BY id ASC
+      LIMIT ?
+    `).bind(MAX_EXPORT_ROWS).all();
+
+    data = results;
+    filename = 'suggestions';
+
+    if (format === 'csv') {
+      const headers = ['id', 'mon', 'burmese', 'english', 'meaning', 'gender', 'aliases_json', 'submitted_by', 'status', 'admin_notes', 'approved_name_id', 'reviewed_at', 'created_at', 'updated_at'];
+      const rows = data.map(r => [
+        r.id, r.mon, r.burmese, r.english, r.meaning, r.gender, r.aliases_json,
+        r.submitted_by, r.status, r.admin_notes, r.approved_name_id, r.reviewed_at, r.created_at, r.updated_at,
+      ]);
+      csvContent = toCSV(headers, rows);
+    }
+
+  } else {
+    // segments
+    const { results } = await env.DB.prepare(`
+      SELECT
+        s.id, s.source_text, s.source_lang, s.meaning, s.verified, s.created_at, s.updated_at,
+        (SELECT json_group_array(json_object(
+          'target_lang', v.target_lang,
+          'target_text', v.target_text,
+          'preferred', v.preferred,
+          'verified', v.verified,
+          'notes', v.notes
+        )) FROM segment_variants v WHERE v.segment_id = s.id) AS variants
+      FROM segments s
+      ORDER BY s.id ASC
+      LIMIT ?
+    `).bind(MAX_EXPORT_ROWS).all();
+
+    data = results.map(r => ({
+      ...r,
+      verified: !!r.verified,
+      variants: (() => { try { return JSON.parse(r.variants || '[]'); } catch { return []; } })(),
+    }));
+    filename = 'segments';
+
+    if (format === 'csv') {
+      const headers = ['id', 'source_text', 'source_lang', 'meaning', 'verified', 'created_at', 'updated_at', 'variants'];
+      const rows = data.map(r => [
+        r.id, r.source_text, r.source_lang, r.meaning,
+        r.verified ? '1' : '0',
+        r.created_at, r.updated_at,
+        JSON.stringify(r.variants),
+      ]);
+      csvContent = toCSV(headers, rows);
+    }
+  }
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const ext = format === 'csv' ? 'csv' : 'json';
+  const disposition = `attachment; filename="${filename}-${timestamp}.${ext}"`;
+
+  if (format === 'json') {
+    return new Response(JSON.stringify({ exported_at: new Date().toISOString(), count: data.length, data }, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': disposition,
+      },
+    });
+  }
+
+  return new Response(csvContent, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': disposition,
+    },
+  });
+}
+
 function normalize(q) {
   return (q || '').replace(/\s+/g, ' ').trim();
 }
@@ -1603,6 +1743,7 @@ async function router(request, env) {
     if (authErr) return authErr;
 
     if (method === 'GET' && pathname === '/api/admin/stats') return handleAdminStats(request, env);
+    if (method === 'GET' && pathname === '/api/admin/export') return handleAdminExport(request, env);
     if (method === 'GET' && pathname === '/api/admin/names') return handleListNames(request, env);
     if (method === 'POST' && pathname === '/api/admin/names') return handleCreateName(request, env);
     if (method === 'GET' && pathname === '/api/admin/segments') return handleListSegments(request, env);

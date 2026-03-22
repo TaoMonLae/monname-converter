@@ -35,6 +35,9 @@ const panelNames      = document.getElementById('panelNames');
 const panelSuggestions = document.getElementById('panelSuggestions');
 const panelSegments = document.getElementById('panelSegments');
 
+const exportNamesBtn       = document.getElementById('exportNamesBtn');
+const exportSuggestionsBtn = document.getElementById('exportSuggestionsBtn');
+const exportSegmentsBtn    = document.getElementById('exportSegmentsBtn');
 const createNameBtn   = document.getElementById('createNameBtn');
 const nameModal       = document.getElementById('nameModal');
 const nameModalTitle  = document.getElementById('nameModalTitle');
@@ -994,6 +997,45 @@ window.openVariantModal = openVariantModal;
 window.editVariantField = editVariantField;
 window.saveVariant      = saveVariant;
 window.deleteVariant    = deleteVariant;
+
+// ═══════════════════════════════════════════════════════════
+// ── Export ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+async function triggerExport(type, format = 'csv') {
+  const btn = { names: exportNamesBtn, suggestions: exportSuggestionsBtn, segments: exportSegmentsBtn }[type];
+  const original = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting…'; }
+
+  try {
+    const res = await fetch(`${API}/admin/export?type=${type}&format=${format}`, { credentials: 'same-origin' });
+    if (res.status === 401) { showLoginScreen(); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `${type}-export.${format}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(`Export failed: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+  }
+}
+
+exportNamesBtn.addEventListener('click', () => triggerExport('names'));
+exportSuggestionsBtn.addEventListener('click', () => triggerExport('suggestions'));
+exportSegmentsBtn.addEventListener('click', () => triggerExport('segments'));
 
 // ── Night mode toggle ─────────────────────────────────────────
 (function initTheme() {
