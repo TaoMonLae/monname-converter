@@ -778,38 +778,62 @@ async function handleUpdateSuggestion(request, env, id) {
     return err('status must be pending, approved, or rejected');
   }
 
-  await env.DB.prepare(`
-    UPDATE suggestions
-    SET status = ?, admin_notes = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).bind(status, admin_notes || null, id).run();
+  const suggestion = await env.DB.prepare('SELECT * FROM suggestions WHERE id = ?').bind(id).first();
+  if (!suggestion) return err('Suggestion not found', 404);
 
-  if (status === 'approved') {
-    const s = await env.DB.prepare('SELECT * FROM suggestions WHERE id = ?').bind(id).first();
-    if (s) {
-      const result = await env.DB.prepare(`
-        INSERT INTO names (mon, burmese, english, meaning, gender, verified)
-        VALUES (?, ?, ?, ?, ?, 1)
-      `).bind(s.mon, s.burmese, s.english, s.meaning, s.gender || 'neutral').run();
+  // Idempotency guard: if we already approved and linked to a name,
+  // do not promote the suggestion again.
+  if (status === 'approved' && suggestion.status === 'approved' && suggestion.approved_name_id) {
+    await env.DB.prepare(`
+      UPDATE suggestions
+      SET admin_notes = ?, reviewed_at = datetime('now'), updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(admin_notes || null, id).run();
 
-      const nameId = result.meta.last_row_id;
+    return json({ success: true, alreadyApproved: true, nameId: suggestion.approved_name_id });
+  }
 
-      if (s.aliases_json) {
-        let aliases;
-        try { aliases = JSON.parse(s.aliases_json); } catch { aliases = []; }
-        const validLangs = ['mon', 'burmese', 'english'];
-        for (const { alias, language } of (aliases || [])) {
-          if (alias && validLangs.includes(language)) {
-            await env.DB.prepare(
-              'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
-            ).bind(nameId, alias.trim(), language).run();
-          }
+  let approvedNameId = suggestion.approved_name_id || null;
+
+  if (status === 'approved' && !approvedNameId) {
+    const result = await env.DB.prepare(`
+      INSERT INTO names (mon, burmese, english, meaning, gender, verified)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `).bind(
+      suggestion.mon,
+      suggestion.burmese,
+      suggestion.english,
+      suggestion.meaning,
+      suggestion.gender || 'neutral'
+    ).run();
+
+    approvedNameId = result.meta.last_row_id;
+
+    if (suggestion.aliases_json) {
+      let aliases;
+      try { aliases = JSON.parse(suggestion.aliases_json); } catch { aliases = []; }
+      const validLangs = ['mon', 'burmese', 'english'];
+      for (const { alias, language } of (aliases || [])) {
+        if (alias && validLangs.includes(language)) {
+          await env.DB.prepare(
+            'INSERT INTO aliases (name_id, alias, language) VALUES (?, ?, ?)'
+          ).bind(approvedNameId, alias.trim(), language).run();
         }
       }
     }
   }
 
-  return json({ success: true });
+  await env.DB.prepare(`
+    UPDATE suggestions
+    SET status = ?,
+        admin_notes = ?,
+        approved_name_id = ?,
+        reviewed_at = datetime('now'),
+        updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(status, admin_notes || null, status === 'approved' ? approvedNameId : null, id).run();
+
+  return json({ success: true, nameId: status === 'approved' ? approvedNameId : null });
 }
 
 async function router(request, env) {
