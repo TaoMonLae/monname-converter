@@ -13,7 +13,8 @@
     "db:seed:local": "node scripts/csv-to-sql.js && wrangler d1 migrations apply mon-names-db --local",
     "db:seed:remote": "node scripts/csv-to-sql.js && wrangler d1 migrations apply mon-names-db --remote",
     "db:studio": "wrangler d1 execute mon-names-db --local --command='SELECT * FROM names LIMIT 10'",
-    "db:reset:local": "wrangler d1 execute mon-names-db --local --command='DROP TABLE IF EXISTS aliases; DROP TABLE IF EXISTS name_aliases; DROP TABLE IF EXISTS suggestions; DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admins; DROP TABLE IF EXISTS segment_variants; DROP TABLE IF EXISTS segments; DROP TABLE IF EXISTS names;' && wrangler d1 migrations apply mon-names-db --local"
+    "db:reset:local": "wrangler d1 execute mon-names-db --local --command='DROP TABLE IF EXISTS aliases; DROP TABLE IF EXISTS name_aliases; DROP TABLE IF EXISTS suggestions; DROP TABLE IF EXISTS admin_sessions; DROP TABLE IF EXISTS admins; DROP TABLE IF EXISTS segment_variants; DROP TABLE IF EXISTS segments; DROP TABLE IF EXISTS names;' && wrangler d1 migrations apply mon-names-db --local",
+    "test": "node --test test/worker.conversion.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^3.78.0"
