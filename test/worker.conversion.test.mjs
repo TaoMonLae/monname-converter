@@ -102,6 +102,45 @@ test('exact alias match flow returns alias_name mode', async () => {
   assert.equal(payload.segments[0].source, 'Alias Value');
 });
 
+test('exact full-name match includes output variants and selects preferred by default', async () => {
+  const db = createDbMock(({ sql, op, args }) => {
+    if (op === 'all' && sql.includes('FROM names') && sql.includes('WHERE mon = ?')) {
+      return {
+        results: [{
+          id: 21,
+          mon: 'အံၚ်',
+          burmese: 'အောင်',
+          english: 'Aung',
+          meaning: null,
+          verified: 1,
+        }],
+      };
+    }
+
+    if (op === 'all' && sql.includes('FROM name_output_variants')) {
+      assert.equal(args[0], 'english');
+      return {
+        results: [
+          { id: 1, name_id: 21, target_lang: 'english', target_text: 'Ong', preferred: 0, verified: 1, label: null, notes: null },
+          { id: 2, name_id: 21, target_lang: 'english', target_text: 'Oung', preferred: 0, verified: 1, label: null, notes: null },
+          { id: 3, name_id: 21, target_lang: 'english', target_text: 'Aung', preferred: 1, verified: 1, label: 'default', notes: null },
+        ],
+      };
+    }
+
+    return { results: [] };
+  });
+
+  const request = new Request('https://example.com/api/convert?q=%E1%80%A1%E1%80%B6%E1%81%9A%E1%80%BA&from=mon&to=english');
+  const response = await handleConvert(request, { DB: db });
+  const payload = await response.json();
+
+  assert.equal(payload.mode, 'exact_name');
+  assert.equal(payload.segments[0].options.length, 3);
+  assert.equal(payload.segments[0].options[0].english, 'Aung');
+  assert.equal(payload.assembled, 'Aung');
+});
+
 test('segmented fallback flow composes output from partial matches', async () => {
   const translations = {
     'ka, la': [{ source_text: 'ka', mon: 'ကာ', burmese: 'ကာ', english: 'ka', meaning: null, verified: 1, preferred: 1 }],

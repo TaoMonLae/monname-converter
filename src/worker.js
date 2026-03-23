@@ -104,8 +104,34 @@ function parseAliases(raw) {
     .filter(entry => entry.alias);
 }
 
+function parseOutputVariants(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(entry => entry && typeof entry === 'object' && entry.target_text)
+      .map(entry => ({
+        target_lang: VALID_LANGUAGES.includes(entry.target_lang) ? entry.target_lang : 'english',
+        target_text: collapseSpaces(entry.target_text),
+        preferred: !!entry.preferred,
+        verified: entry.verified === undefined ? true : !!entry.verified,
+        label: entry.label || null,
+        notes: entry.notes || null,
+      }))
+      .filter(entry => entry.target_text);
+  } catch {
+    return [];
+  }
+}
+
 function formatName(row) {
-  return { ...row, verified: !!row.verified, aliases: parseAliases(row.aliases) };
+  return {
+    ...row,
+    verified: !!row.verified,
+    aliases: parseAliases(row.aliases),
+    output_variants: parseOutputVariants(row.output_variants),
+  };
 }
 
 function csvCell(value) {
@@ -148,7 +174,15 @@ async function handleAdminExport(request, env) {
           'preferred', a.preferred,
           'variant_group', a.variant_group,
           'usage_note', a.usage_note
-        )) FROM aliases a WHERE a.name_id = n.id) AS aliases
+        )) FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        (SELECT json_group_array(json_object(
+          'target_lang', v.target_lang,
+          'target_text', v.target_text,
+          'preferred', v.preferred,
+          'verified', v.verified,
+          'label', v.label,
+          'notes', v.notes
+        )) FROM name_output_variants v WHERE v.name_id = n.id) AS output_variants
       FROM names n
       ORDER BY n.id ASC
       LIMIT ?
@@ -158,12 +192,13 @@ async function handleAdminExport(request, env) {
     filename = 'names';
 
     if (format === 'csv') {
-      const headers = ['id', 'mon', 'burmese', 'english', 'meaning', 'gender', 'verified', 'created_at', 'updated_at', 'aliases'];
+      const headers = ['id', 'mon', 'burmese', 'english', 'meaning', 'gender', 'verified', 'created_at', 'updated_at', 'aliases', 'output_variants'];
       const rows = data.map(r => [
         r.id, r.mon, r.burmese, r.english, r.meaning, r.gender,
         r.verified ? '1' : '0',
         r.created_at, r.updated_at,
         JSON.stringify(r.aliases),
+        JSON.stringify(r.output_variants),
       ]);
       csvContent = toCSV(headers, rows);
     }
@@ -424,6 +459,8 @@ const FIELD_LIMITS = {
   alias: 120,
   variant_group: 80,
   usage_note: 200,
+  output_variant_label: 80,
+  output_variant_notes: 300,
   submitted_by: 80,
 };
 
@@ -506,6 +543,7 @@ function sanitizeNamePayload(body, { includeSubmittedBy = false, aliasesOptional
   const english = sanitizeLimitedText(body.english, 'english', errors, { maxLength: FIELD_LIMITS.english });
   const meaning = sanitizeLimitedText(body.meaning, 'meaning', errors, { maxLength: FIELD_LIMITS.meaning });
   const aliases = sanitizeAliasesInput(body.aliases, errors, { allowUndefined: aliasesOptional });
+  const output_variants = sanitizeOutputVariantsInput(body.output_variants, errors, { allowUndefined: aliasesOptional });
 
   if (!mon && !burmese && !english) {
     errors.push('At least one of mon, burmese, or english is required');
@@ -520,6 +558,7 @@ function sanitizeNamePayload(body, { includeSubmittedBy = false, aliasesOptional
     gender: safeGender,
     verified: !!body.verified,
     aliases,
+    output_variants,
   };
 
   if (includeSubmittedBy) {
@@ -529,6 +568,74 @@ function sanitizeNamePayload(body, { includeSubmittedBy = false, aliasesOptional
   }
 
   return { errors, payload };
+}
+
+function sanitizeOutputVariantsInput(rawVariants, errors, { allowUndefined = true } = {}) {
+  if (rawVariants === undefined) return allowUndefined ? undefined : [];
+  if (rawVariants === null) return [];
+  if (!Array.isArray(rawVariants)) {
+    errors.push('output_variants must be an array');
+    return [];
+  }
+
+  const seen = new Set();
+  const clean = [];
+  const preferredByLang = new Set();
+
+  for (let i = 0; i < rawVariants.length; i++) {
+    const entry = rawVariants[i];
+    if (!entry || typeof entry !== 'object') {
+      errors.push(`output_variants[${i}] must be an object`);
+      continue;
+    }
+
+    const target_lang = VALID_LANGUAGES.includes(entry.target_lang) ? entry.target_lang : null;
+    if (!target_lang) {
+      errors.push(`output_variants[${i}].target_lang must be mon, burmese, or english`);
+      continue;
+    }
+
+    const target_text = sanitizeLimitedText(entry.target_text, `output_variants[${i}].target_text`, errors, {
+      maxLength: FIELD_LIMITS[target_lang],
+      allowNull: false,
+    });
+    if (!target_text) continue;
+
+    const label = sanitizeLimitedText(entry.label, `output_variants[${i}].label`, errors, {
+      maxLength: FIELD_LIMITS.output_variant_label,
+    });
+    const notes = sanitizeLimitedText(entry.notes, `output_variants[${i}].notes`, errors, {
+      maxLength: FIELD_LIMITS.output_variant_notes,
+    });
+
+    const dedupeKey = `${target_lang}||${target_text.toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const preferred = !!entry.preferred && !preferredByLang.has(target_lang);
+    if (preferred) preferredByLang.add(target_lang);
+
+    clean.push({
+      target_lang,
+      target_text,
+      preferred,
+      verified: entry.verified === undefined ? true : !!entry.verified,
+      label,
+      notes,
+    });
+  }
+
+  const firstByLang = new Map();
+  for (let i = 0; i < clean.length; i++) {
+    const lang = clean[i].target_lang;
+    if (!firstByLang.has(lang)) firstByLang.set(lang, i);
+  }
+  for (const [lang, index] of firstByLang.entries()) {
+    if (clean.some(entry => entry.target_lang === lang && entry.preferred)) continue;
+    clean[index].preferred = true;
+  }
+
+  return clean;
 }
 
 function sanitizeSegmentPayload(body) {
@@ -601,24 +708,65 @@ function toOptionFromName(row) {
   };
 }
 
-function dedupeOptions(options, targetLang) {
-  const seen = new Set();
-  const ordered = [];
+function toOptionWithTargetText(baseRow, toLang, variant = null, canonicalPreferred = false) {
+  const option = {
+    mon: baseRow.mon,
+    burmese: baseRow.burmese,
+    english: baseRow.english,
+    meaning: baseRow.meaning,
+    verified: variant ? !!variant.verified : !!baseRow.verified,
+    preferred: variant ? !!variant.preferred : canonicalPreferred,
+  };
 
-  for (const option of options) {
-    const key = [
-      collapseSpaces(option.mon),
-      collapseSpaces(option.burmese),
-      collapseSpaces(option.english),
-      collapseSpaces(option.meaning),
-      option.verified ? '1' : '0',
-      option.preferred ? '1' : '0',
-    ].join('||');
-
-    if (seen.has(key)) continue;
-    seen.add(key);
-    ordered.push(option);
+  if (variant) {
+    option[toLang] = variant.target_text;
+    option.variantLabel = variant.label || null;
+    option.variantNotes = variant.notes || null;
+    option.outputVariantId = variant.id || null;
   }
+  return option;
+}
+
+function buildNameOptionsForRow(row, toLang, variantsByNameId) {
+  const variants = (variantsByNameId.get(row.id) || [])
+    .filter(variant => variant.target_lang === toLang);
+  const hasPreferredVariant = variants.some(variant => variant.preferred);
+
+  const options = [
+    toOptionWithTargetText(row, toLang, null, !hasPreferredVariant),
+    ...variants.map(variant => toOptionWithTargetText(row, toLang, variant, false)),
+  ];
+  return dedupeOptions(options, toLang);
+}
+
+async function fetchNameOutputVariantsMap(env, nameIds, targetLang) {
+  const uniqueIds = Array.from(new Set((nameIds || []).filter(Boolean)));
+  const byNameId = new Map();
+  if (uniqueIds.length === 0) return byNameId;
+
+  const placeholders = uniqueIds.map(() => '?').join(', ');
+  const { results } = await env.DB.prepare(`
+    SELECT id, name_id, target_lang, target_text, preferred, verified, label, notes
+    FROM name_output_variants
+    WHERE target_lang = ?
+      AND name_id IN (${placeholders})
+    ORDER BY preferred DESC, verified DESC, target_text ASC
+  `).bind(targetLang, ...uniqueIds).all();
+
+  for (const row of results || []) {
+    if (!byNameId.has(row.name_id)) byNameId.set(row.name_id, []);
+    byNameId.get(row.name_id).push({
+      ...row,
+      preferred: !!row.preferred,
+      verified: !!row.verified,
+    });
+  }
+
+  return byNameId;
+}
+
+function dedupeOptions(options, targetLang) {
+  const ordered = [...options];
 
   ordered.sort((a, b) => {
     const aPreferred = a.preferred ? 1 : 0;
@@ -634,7 +782,21 @@ function dedupeOptions(options, targetLang) {
     return at.localeCompare(bt);
   });
 
-  return ordered;
+  const seen = new Set();
+  const deduped = [];
+  for (const option of ordered) {
+    const key = [
+      collapseSpaces(option.mon),
+      collapseSpaces(option.burmese),
+      collapseSpaces(option.english),
+      collapseSpaces(option.meaning),
+    ].join('||');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(option);
+  }
+
+  return deduped;
 }
 
 function buildAssembled(segments, toLang) {
@@ -719,20 +881,28 @@ async function fetchPrefixGroups(env, remainder, fromLang, toLang) {
 
   const grouped = new Map();
 
-  for (const row of nameRows || []) {
+  const nameRowsNormalized = nameRows || [];
+  const aliasRowsNormalized = aliasRows || [];
+  const variantsByNameId = await fetchNameOutputVariantsMap(
+    env,
+    [...nameRowsNormalized, ...aliasRowsNormalized].map(row => row.id),
+    toLang
+  );
+
+  for (const row of nameRowsNormalized) {
     const sourceText = collapseSpaces(row.source_text);
     if (!sourceText) continue;
 
     if (!grouped.has(sourceText)) grouped.set(sourceText, []);
-    grouped.get(sourceText).push(toOptionFromName(row));
+    grouped.get(sourceText).push(...buildNameOptionsForRow(row, toLang, variantsByNameId));
   }
 
-  for (const row of aliasRows || []) {
+  for (const row of aliasRowsNormalized) {
     const sourceText = collapseSpaces(row.source_text);
     if (!sourceText) continue;
 
     if (!grouped.has(sourceText)) grouped.set(sourceText, []);
-    grouped.get(sourceText).push(toOptionFromName(row));
+    grouped.get(sourceText).push(...buildNameOptionsForRow(row, toLang, variantsByNameId));
   }
 
   for (const row of segmentRows || []) {
@@ -901,13 +1071,17 @@ async function handleConvert(request, env) {
 
   const exactName = await fetchExactNameMatches(env, input, fromLang);
   if (exactName.length > 0) {
+    const variantsByNameId = await fetchNameOutputVariantsMap(env, exactName.map(row => row.id), toLang);
     const segment = {
       source: input,
       fromLang,
       toLang,
       separatorBefore: '',
       matched: true,
-      options: dedupeOptions(exactName.map(toOptionFromName), toLang),
+      options: dedupeOptions(
+        exactName.flatMap(row => buildNameOptionsForRow(row, toLang, variantsByNameId)),
+        toLang
+      ),
       selectedIndex: 0,
     };
     return json({
@@ -922,13 +1096,17 @@ async function handleConvert(request, env) {
 
   const exactAlias = await fetchExactAliasMatches(env, input, fromLang);
   if (exactAlias.length > 0) {
+    const variantsByNameId = await fetchNameOutputVariantsMap(env, exactAlias.map(row => row.id), toLang);
     const segment = {
       source: input,
       fromLang,
       toLang,
       separatorBefore: '',
       matched: true,
-      options: dedupeOptions(exactAlias.map(toOptionFromName), toLang),
+      options: dedupeOptions(
+        exactAlias.flatMap(row => buildNameOptionsForRow(row, toLang, variantsByNameId)),
+        toLang
+      ),
       selectedIndex: 0,
     };
     return json({
@@ -1214,7 +1392,16 @@ async function handleListNames(request, env) {
           'variant_group', a.variant_group,
           'usage_note', a.usage_note
         ))
-         FROM aliases a WHERE a.name_id = n.id) AS aliases
+         FROM aliases a WHERE a.name_id = n.id) AS aliases,
+        (SELECT json_group_array(json_object(
+          'target_lang', v.target_lang,
+          'target_text', v.target_text,
+          'preferred', v.preferred,
+          'verified', v.verified,
+          'label', v.label,
+          'notes', v.notes
+        ))
+         FROM name_output_variants v WHERE v.name_id = n.id) AS output_variants
       FROM names n
       ${whereClause}
       ORDER BY n.created_at DESC
@@ -1274,6 +1461,24 @@ async function handleCreateName(request, env) {
     }
   }
 
+  if (Array.isArray(payload.output_variants) && payload.output_variants.length > 0) {
+    for (const { target_lang, target_text, preferred, verified, label, notes } of payload.output_variants) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO name_output_variants
+         (name_id, target_lang, target_text, preferred, verified, label, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        nameId,
+        target_lang,
+        target_text,
+        preferred ? 1 : 0,
+        verified ? 1 : 0,
+        label,
+        notes
+      ).run();
+    }
+  }
+
   return json({ success: true, id: nameId }, 201);
 }
 
@@ -1317,10 +1522,32 @@ async function handleUpdateName(request, env, id) {
     }
   }
 
+  if (payload.output_variants !== undefined) {
+    await env.DB.prepare('DELETE FROM name_output_variants WHERE name_id = ?').bind(id).run();
+    if (Array.isArray(payload.output_variants)) {
+      for (const { target_lang, target_text, preferred, verified, label, notes } of payload.output_variants) {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO name_output_variants
+           (name_id, target_lang, target_text, preferred, verified, label, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          id,
+          target_lang,
+          target_text,
+          preferred ? 1 : 0,
+          verified ? 1 : 0,
+          label,
+          notes
+        ).run();
+      }
+    }
+  }
+
   return json({ success: true });
 }
 
 async function handleDeleteName(request, env, id) {
+  await env.DB.prepare('DELETE FROM name_output_variants WHERE name_id = ?').bind(id).run();
   await env.DB.prepare('DELETE FROM aliases WHERE name_id = ?').bind(id).run();
   await env.DB.prepare('DELETE FROM names WHERE id = ?').bind(id).run();
   return json({ success: true });
