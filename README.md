@@ -122,7 +122,7 @@ Run the lightweight regression tests for conversion-critical behavior:
 npm test
 ```
 
-This suite covers exact full-name conversion, exact alias conversion, segmented fallback assembly, separator preservation in rebuilt output, and duplicate-safe suggestion approval behavior.
+This suite covers exact full-name conversion, exact alias conversion, segmented fallback assembly (including multi-variant segment options), preferred variant defaults, assembled-output rebuild behavior after variant selection changes, separator preservation, admin output-variant persistence on name updates, and duplicate-safe suggestion approval behavior.
 
 ---
 

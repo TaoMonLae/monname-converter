@@ -19,6 +19,7 @@ let currentSegmentsSourceLang = 'all';
 let allNames = [];           // local copy for client-side filter
 let allSegments = [];
 let editingAliases = [];     // aliases currently in the modal
+let editingOutputVariants = [];
 let currentSegmentVariants = [];
 
 // ── DOM refs ─────────────────────────────────────────────────
@@ -55,6 +56,8 @@ const nameModalSave   = document.getElementById('nameModalSave');
 const nameModalAlert  = document.getElementById('nameModalAlert');
 const addAliasBtn     = document.getElementById('addAliasBtn');
 const aliasRows       = document.getElementById('aliasRows');
+const addOutputVariantBtn = document.getElementById('addOutputVariantBtn');
+const outputVariantRows = document.getElementById('outputVariantRows');
 
 const namesTableBody  = document.getElementById('namesTableBody');
 const nameFilter      = document.getElementById('nameFilter');
@@ -362,7 +365,9 @@ async function openEditModal(id) {
   document.getElementById('f-verified').checked = !!name.verified;
 
   editingAliases = [...(name.aliases || [])];
+  editingOutputVariants = [...(name.output_variants || [])];
   renderAliasRows();
+  renderOutputVariantRows();
   hideAlert(nameModalAlert);
   openModal(nameModal);
 }
@@ -383,12 +388,13 @@ nameModalSave.addEventListener('click', async () => {
   }
 
   const aliases = collectAliases();
+  const output_variants = collectOutputVariants();
 
   nameModalSave.disabled = true;
   nameModalSave.textContent = 'Saving…';
 
   try {
-    const payload = { mon, burmese, english, meaning, gender, verified, aliases };
+    const payload = { mon, burmese, english, meaning, gender, verified, aliases, output_variants };
     if (id) {
       await apiFetch(`${API}/admin/names/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
     } else {
@@ -503,6 +509,115 @@ function collectAliases() {
   })).filter(a => a.alias);
 }
 
+
+function syncOutputVariantsFromDom() {
+  outputVariantRows.querySelectorAll('.alias-row').forEach((row, i) => {
+    if (!editingOutputVariants[i]) return;
+    editingOutputVariants[i].target_lang = row.querySelector('[data-field="target_lang"]').value;
+    editingOutputVariants[i].target_text = row.querySelector('[data-field="target_text"]').value;
+    editingOutputVariants[i].preferred = row.querySelector('[data-field="preferred"]').checked;
+    editingOutputVariants[i].verified = row.querySelector('[data-field="verified"]').checked;
+    editingOutputVariants[i].label = row.querySelector('[data-field="label"]').value;
+    editingOutputVariants[i].notes = row.querySelector('[data-field="notes"]').value;
+  });
+}
+
+addOutputVariantBtn?.addEventListener('click', () => {
+  syncOutputVariantsFromDom();
+  editingOutputVariants.push({
+    target_lang: 'english',
+    target_text: '',
+    preferred: false,
+    verified: true,
+    label: '',
+    notes: '',
+  });
+  renderOutputVariantRows();
+});
+
+function renderOutputVariantRows() {
+  if (!outputVariantRows) return;
+  if (editingOutputVariants.length === 0) {
+    outputVariantRows.innerHTML = '<p class="text-muted text-small">No output variants configured.</p>';
+    return;
+  }
+
+  outputVariantRows.innerHTML = editingOutputVariants.map((variant, i) => `
+    <div class="alias-row" data-index="${i}">
+      <div class="alias-row__primary">
+        <select data-field="target_lang" onchange="editingOutputVariants[${i}].target_lang = this.value">
+          <option value="english" ${variant.target_lang === 'english' ? 'selected' : ''}>English</option>
+          <option value="mon" ${variant.target_lang === 'mon' ? 'selected' : ''}>Mon</option>
+          <option value="burmese" ${variant.target_lang === 'burmese' ? 'selected' : ''}>Burmese</option>
+        </select>
+        <input
+          type="text"
+          data-field="target_text"
+          value="${escHtml(variant.target_text || '')}"
+          placeholder="Output text"
+          onchange="editingOutputVariants[${i}].target_text = this.value"
+        />
+        <label class="text-small" style="white-space:nowrap">
+          <input type="checkbox" data-field="preferred" ${variant.preferred ? 'checked' : ''} onchange="editingOutputVariants[${i}].preferred = this.checked" />
+          Preferred
+        </label>
+        <label class="text-small" style="white-space:nowrap">
+          <input type="checkbox" data-field="verified" ${variant.verified ? 'checked' : ''} onchange="editingOutputVariants[${i}].verified = this.checked" />
+          Verified
+        </label>
+        <button class="btn btn--ghost btn--sm" onclick="removeOutputVariant(${i})">✕</button>
+      </div>
+      <div class="alias-row__meta">
+        <input
+          type="text"
+          data-field="label"
+          value="${escHtml(variant.label || '')}"
+          placeholder="Label (optional)"
+          onchange="editingOutputVariants[${i}].label = this.value"
+        />
+        <input
+          type="text"
+          data-field="notes"
+          value="${escHtml(variant.notes || '')}"
+          placeholder="Notes (optional)"
+          onchange="editingOutputVariants[${i}].notes = this.value"
+        />
+      </div>
+    </div>
+  `).join('');
+}
+
+function removeOutputVariant(index) {
+  syncOutputVariantsFromDom();
+  editingOutputVariants.splice(index, 1);
+  renderOutputVariantRows();
+}
+
+function collectOutputVariants() {
+  const rows = [...outputVariantRows.querySelectorAll('.alias-row')].map(row => ({
+    target_lang: row.querySelector('[data-field="target_lang"]').value,
+    target_text: row.querySelector('[data-field="target_text"]').value.trim(),
+    preferred: row.querySelector('[data-field="preferred"]').checked,
+    verified: row.querySelector('[data-field="verified"]').checked,
+    label: row.querySelector('[data-field="label"]').value.trim(),
+    notes: row.querySelector('[data-field="notes"]').value.trim(),
+  })).filter(v => v.target_text);
+
+  const preferredByLang = new Set();
+  return rows.map((variant, index) => {
+    const next = { ...variant };
+    if (variant.preferred && preferredByLang.has(variant.target_lang)) {
+      next.preferred = false;
+    }
+    if (next.preferred) preferredByLang.add(next.target_lang);
+    if (!next.preferred && !preferredByLang.has(next.target_lang) && rows.findIndex(row => row.target_lang === next.target_lang) === index) {
+      next.preferred = true;
+      preferredByLang.add(next.target_lang);
+    }
+    return next;
+  });
+}
+
 function clearNameForm() {
   document.getElementById('f-mon').value     = '';
   document.getElementById('f-burmese').value = '';
@@ -511,7 +626,9 @@ function clearNameForm() {
   document.getElementById('f-gender').value  = 'neutral';
   document.getElementById('f-verified').checked = false;
   editingAliases = [];
+  editingOutputVariants = [];
   renderAliasRows();
+  renderOutputVariantRows();
   hideAlert(nameModalAlert);
 }
 

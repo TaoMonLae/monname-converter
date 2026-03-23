@@ -36,12 +36,12 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-test-'));
 const testableWorkerPath = path.join(tempDir, 'worker.testable.mjs');
 fs.writeFileSync(
   testableWorkerPath,
-  `${workerSource}\nexport { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport };\n`,
+  `${workerSource}\nexport { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport, handleUpdateName };\n`,
   'utf8'
 );
 const workerModule = await import(pathToFileURL(testableWorkerPath).href);
 
-const { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport } = workerModule;
+const { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport, handleUpdateName } = workerModule;
 
 test('exact full-name match flow returns exact_name mode', async () => {
   const db = createDbMock(({ sql, op }) => {
@@ -310,4 +310,95 @@ test('structured json import dryRun validates and summarizes', async () => {
   assert.equal(payload.summary.output_variants_inserted, 1);
   assert.equal(payload.summary.segment_variants_inserted, 1);
   assert.equal(payload.summary.invalid_records, 0);
+});
+
+
+test('segmented match includes multiple output variants and picks preferred by default', async () => {
+  const db = createDbMock(({ sql, args, op }) => {
+    if (op !== 'all') return null;
+
+    if (sql.includes('FROM names') && sql.includes('WHERE english = ?')) return { results: [] };
+    if (sql.includes('FROM aliases a') && sql.includes('a.language = ? AND a.alias = ?')) return { results: [] };
+    if (sql.includes('FROM names') && sql.includes('substr(?, 1, length(english)) = english')) return { results: [] };
+    if (sql.includes('FROM aliases a') && sql.includes('substr(?, 1, length(a.alias)) = a.alias')) return { results: [] };
+
+    if (sql.includes('FROM segments s')) {
+      if (args[2] === 'ka') {
+        return {
+          results: [
+            { source_text: 'ka', target_text: 'ကာ', meaning: 'first', verified: 1, preferred: 1 },
+            { source_text: 'ka', target_text: 'ခါ', meaning: 'alt', verified: 1, preferred: 0 },
+          ],
+        };
+      }
+      return { results: [] };
+    }
+
+    return { results: [] };
+  });
+
+  const request = new Request('https://example.com/api/convert?q=ka&from=english&to=mon');
+  const response = await handleConvert(request, { DB: db });
+  const payload = await response.json();
+
+  assert.equal(payload.mode, 'segmented');
+  assert.equal(payload.segments.length, 1);
+  assert.equal(payload.segments[0].options.length, 2);
+  assert.equal(payload.segments[0].selectedIndex, 0);
+  assert.equal(payload.assembled, 'ကာ');
+});
+
+test('rebuilding assembled output reflects changed selected variant', () => {
+  const segments = [{
+    separatorBefore: '',
+    selectedIndex: 0,
+    fromLang: 'english',
+    source: 'aung',
+    options: [
+      { english: 'Aung', mon: 'အံၚ်' },
+      { english: 'Ong', mon: 'အောင်' },
+      { english: 'Oung', mon: 'အိုင်' },
+    ],
+  }];
+
+  assert.equal(buildAssembled(segments, 'english'), 'Aung');
+  segments[0].selectedIndex = 2;
+  assert.equal(buildAssembled(segments, 'english'), 'Oung');
+});
+
+test('admin update name persists output variants payload', async () => {
+  const db = createDbMock(({ sql, op }) => {
+    if (op === 'run') return { success: true, meta: {} };
+    if (op === 'first') return { id: 1 };
+    return { results: [] };
+  });
+
+  const request = new Request('https://example.com/api/admin/names/1', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mon: 'အံၚ်',
+      burmese: 'အောင်',
+      english: 'Aung',
+      meaning: 'victory',
+      gender: 'neutral',
+      verified: true,
+      aliases: [],
+      output_variants: [
+        { target_lang: 'english', target_text: 'Aung', preferred: true, verified: true, label: 'Recommended', notes: '' },
+        { target_lang: 'english', target_text: 'Ong', preferred: false, verified: true, label: 'Alternate', notes: 'regional' },
+      ],
+    }),
+  });
+
+  const response = await handleUpdateName(request, { DB: db }, 1);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.success, true);
+
+  const insertCalls = db.calls.filter(call => call.sql.includes('INSERT OR IGNORE INTO name_output_variants'));
+  assert.equal(insertCalls.length, 2);
+  assert.deepEqual(insertCalls[0].args.slice(1, 4), ['english', 'Aung', 1]);
+  assert.deepEqual(insertCalls[1].args.slice(1, 4), ['english', 'Ong', 0]);
 });
