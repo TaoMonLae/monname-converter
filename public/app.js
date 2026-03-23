@@ -41,6 +41,8 @@ const suggestAlert      = document.getElementById('suggestAlert');
 let fromLang       = 'burmese';   // which box the user last typed in
 let wordResults    = [];
 let columnResults  = { mon: '', burmese: '', english: '' };
+let segmentsByTarget = {};
+let breakdownTargetLang = null;
 
 let history = [];
 try { history = JSON.parse(localStorage.getItem('converter-history') || '[]'); }
@@ -162,9 +164,15 @@ async function convert() {
     const conversionByTarget = {};
     conversions.forEach(row => { conversionByTarget[row.targetLang] = row.data; });
 
-    // Use segments from whichever conversion gave us the most info
-    const firstConv = conversions[0]?.data;
-    wordResults    = firstConv?.segments || [];
+    // Keep per-target segmented results so variant selection is language-specific.
+    segmentsByTarget = Object.fromEntries(
+      conversions.map(row => [row.targetLang, cloneSegments(row.data?.segments || [])])
+    );
+
+    breakdownTargetLang = selectBreakdownTarget(segmentsByTarget, fromLang)
+      || conversions[0]?.targetLang
+      || null;
+    wordResults = cloneSegments(segmentsByTarget[breakdownTargetLang] || []);
 
     columnResults = {
       mon:     fromLang === 'mon'     ? input : (conversionByTarget.mon?.assembled     || ''),
@@ -183,12 +191,11 @@ async function convert() {
       }
     });
 
-    const needsBreakdown = wordResults.length > 1
-      || wordResults.some(wr => !wr.matched || (wr.options || []).length > 1);
+    const needsBreakdown = hasBreakdownContent(wordResults);
 
     renderWordTokens();
     wordTokensSection.classList.toggle('hidden', !needsBreakdown);
-    setConversionHint(firstConv);
+    setConversionHint((breakdownTargetLang && conversionByTarget[breakdownTargetLang]) || conversions[0]?.data || null);
 
     downloadCardBtn?.classList.remove('hidden');
     saveHistory(input, columnResults);
@@ -221,15 +228,27 @@ function markActiveColumn(lang) {
 // ── Word tokens rendering ─────────────────────────────────────
 
 function renderWordTokens() {
+  const targetSelector = buildBreakdownTargetSelector();
   const tokens = wordResults.map((wr, i) => renderToken(wr, i)).join('');
-  wordTokensDiv.innerHTML = tokens || '';
+  wordTokensDiv.innerHTML = `${targetSelector}${tokens}` || '';
+
+  wordTokensDiv.querySelectorAll('.variant-target-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nextTarget = btn.dataset.targetLang;
+      if (!nextTarget || nextTarget === breakdownTargetLang) return;
+      breakdownTargetLang = nextTarget;
+      wordResults = cloneSegments(segmentsByTarget[breakdownTargetLang] || []);
+      renderWordTokens();
+    });
+  });
 
   wordTokensDiv.querySelectorAll('.variant-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       const wi = parseInt(btn.dataset.wordIndex, 10);
       const mi = parseInt(btn.dataset.matchIndex, 10);
       wordResults[wi].selectedIndex = mi;
-      // Rebuild assembled results from updated selections
+      segmentsByTarget[breakdownTargetLang] = cloneSegments(wordResults);
+      // Rebuild assembled result for the selected target language.
       rebuildFromWordTokens();
       renderWordTokens();
     });
@@ -237,8 +256,7 @@ function renderWordTokens() {
 }
 
 function rebuildFromWordTokens() {
-  // Re-assemble target columns based on selected variants
-  const [toLang1, toLang2] = LANGS.filter(l => l !== fromLang);
+  if (!breakdownTargetLang) return;
 
   function assemble(lang) {
     // Preserve separatorBefore so variant changes keep original spacing/punctuation between segments.
@@ -251,15 +269,10 @@ function rebuildFromWordTokens() {
     }).join('').trim();
   }
 
-  if (toLang1) columnResults[toLang1] = assemble(toLang1);
-  if (toLang2) columnResults[toLang2] = assemble(toLang2);
+  columnResults[breakdownTargetLang] = assemble(breakdownTargetLang);
 
-  LANGS.forEach(lang => {
-    if (lang !== fromLang) {
-      const el = inputsByLang[lang];
-      if (el) el.value = columnResults[lang];
-    }
-  });
+  const el = inputsByLang[breakdownTargetLang];
+  if (el) el.value = columnResults[breakdownTargetLang];
 }
 
 
@@ -278,8 +291,7 @@ function renderToken(wr, i) {
   const options       = Array.isArray(wr.options) ? wr.options : [];
   const selectedIndex = Number.isInteger(wr.selectedIndex) ? wr.selectedIndex : preferredOptionIndex(options);
   const srcClass      = langClass(fromLang);
-  // Show the first target language in the breakdown for context
-  const displayTarget = LANGS.find(l => l !== fromLang) || 'mon';
+  const displayTarget = breakdownTargetLang || LANGS.find(l => l !== fromLang) || 'mon';
   const tgtClass      = langClass(displayTarget);
 
   if (options.length === 0 || !wr.matched) {
@@ -331,6 +343,58 @@ function renderToken(wr, i) {
     </div>
     <div class="variant-chip-list" role="listbox" aria-label="Choose match for ${escHtml(sourceText)}">${chips}</div>
   </div>`;
+}
+
+function cloneSegments(segments = []) {
+  return (segments || []).map(segment => ({
+    ...segment,
+    options: Array.isArray(segment.options)
+      ? segment.options.map(option => ({ ...option }))
+      : [],
+  }));
+}
+
+function countVariantChoices(segments = []) {
+  return (segments || []).reduce((total, segment) => {
+    const optionCount = Array.isArray(segment.options) ? segment.options.length : 0;
+    return total + Math.max(0, optionCount - 1);
+  }, 0);
+}
+
+function hasBreakdownContent(segments = []) {
+  return (segments || []).length > 1
+    || (segments || []).some(segment => !segment?.matched || (segment?.options || []).length > 1);
+}
+
+function selectBreakdownTarget(byTarget, sourceLang) {
+  const targets = LANGS.filter(lang => lang !== sourceLang && Array.isArray(byTarget?.[lang]));
+  if (targets.length === 0) return null;
+
+  return targets
+    .map(lang => ({ lang, score: countVariantChoices(byTarget[lang]) }))
+    .sort((a, b) => b.score - a.score || LANGS.indexOf(a.lang) - LANGS.indexOf(b.lang))[0]
+    .lang;
+}
+
+function buildBreakdownTargetSelector() {
+  if (!breakdownTargetLang) return '';
+
+  const targets = LANGS
+    .filter(lang => lang !== fromLang && Array.isArray(segmentsByTarget?.[lang]))
+    .filter(lang => hasBreakdownContent(segmentsByTarget[lang]));
+
+  if (targets.length <= 1) return '';
+
+  const chips = targets.map(lang => {
+    const active = lang === breakdownTargetLang;
+    const variantCount = countVariantChoices(segmentsByTarget[lang]);
+    return `<button type="button"
+      class="variant-target-chip${active ? ' active' : ''}"
+      data-target-lang="${lang}"
+      aria-pressed="${active ? 'true' : 'false'}">${escHtml(LANG_LABELS[lang])} (${variantCount + 1})</button>`;
+  }).join('');
+
+  return `<div class="variant-target-selector" aria-label="Choose target language variants">${chips}</div>`;
 }
 
 // ── Download Card (Save as Image) ─────────────────────────────
@@ -621,6 +685,8 @@ function clearAll() {
   });
   wordResults    = [];
   columnResults  = { mon: '', burmese: '', english: '' };
+  segmentsByTarget = {};
+  breakdownTargetLang = null;
   wordTokensSection.classList.add('hidden');
   wordTokensDiv.innerHTML = '';
   downloadCardBtn?.classList.add('hidden');

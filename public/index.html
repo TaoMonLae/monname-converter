@@ -394,6 +394,56 @@
       font-style: italic;
     }
 
+    .variant-target-selector {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .variant-target-chip {
+      border: 1px solid var(--border, #475569);
+      background: var(--converter-card, #0f172a);
+      color: var(--text-mid, #cbd5e1);
+      border-radius: 999px;
+      padding: 4px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: all var(--duration);
+    }
+
+    .variant-target-chip:hover {
+      border-color: #22d3ee;
+      color: #e2e8f0;
+    }
+
+    .variant-target-chip.active {
+      border-color: #22d3ee;
+      background: rgba(34, 211, 238, 0.15);
+      color: #67e8f9;
+    }
+
+    [data-theme="light"] .variant-target-chip {
+      background: var(--bg-card);
+      color: var(--text-mid);
+      border-color: var(--border);
+    }
+
+    [data-theme="light"] .variant-target-chip:hover {
+      border-color: var(--primary-light);
+      color: var(--primary);
+    }
+
+    [data-theme="light"] .variant-target-chip.active {
+      border-color: var(--primary);
+      background: var(--bg-overlay);
+      color: var(--primary);
+    }
+
     /* ── Download card btn ──────────────────────────────────── */
     .download-card-btn {
       width: 100%;
