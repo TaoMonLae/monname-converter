@@ -244,7 +244,7 @@ function rebuildFromWordTokens() {
     // Preserve separatorBefore so variant changes keep original spacing/punctuation between segments.
     return wordResults.map(wr => {
       const opts = Array.isArray(wr.options) ? wr.options : [];
-      const idx  = wr.selectedIndex || 0;
+      const idx  = Number.isInteger(wr.selectedIndex) ? wr.selectedIndex : preferredOptionIndex(opts);
       const opt  = opts[idx] || opts[0];
       const text = opt ? ((opt[lang] || opt[fromLang] || wr.source || '')) : (wr.source || '');
       return `${wr.separatorBefore || ''}${text || ''}`;
@@ -262,10 +262,21 @@ function rebuildFromWordTokens() {
   });
 }
 
+
+function preferredOptionIndex(options = []) {
+  const preferred = options.findIndex(option => option && option.preferred);
+  return preferred >= 0 ? preferred : 0;
+}
+
+function variantRoleLabel(option, index) {
+  if (option?.variantLabel) return option.variantLabel;
+  return index === 0 ? 'Recommended' : 'Alternate';
+}
+
 function renderToken(wr, i) {
   const sourceText    = wr.source || '';
   const options       = Array.isArray(wr.options) ? wr.options : [];
-  const selectedIndex = wr.selectedIndex || 0;
+  const selectedIndex = Number.isInteger(wr.selectedIndex) ? wr.selectedIndex : preferredOptionIndex(options);
   const srcClass      = langClass(fromLang);
   // Show the first target language in the breakdown for context
   const displayTarget = LANGS.find(l => l !== fromLang) || 'mon';
@@ -295,13 +306,17 @@ function renderToken(wr, i) {
     const oTgt     = option[displayTarget] || sourceText;
     const oMeaning = option.meaning ? String(option.meaning).substring(0, 40) : '';
 
+    const roleLabel = variantRoleLabel(option, idx);
+
     return `<button
       type="button"
       class="variant-chip${idx === selectedIndex ? ' active' : ''}"
       data-word-index="${i}"
-      data-match-index="${idx}">
+      data-match-index="${idx}"
+      aria-pressed="${idx === selectedIndex ? 'true' : 'false'}">
       <span class="variant-chip__target ${tgtClass}">${escHtml(oTgt)}</span>
       <span class="variant-chip__source ${srcClass}">${escHtml(oSrc)}</span>
+      <span class="word-token__badge">${escHtml(roleLabel)}</span>
       ${oMeaning ? `<span class="variant-chip__meaning">${escHtml(oMeaning)}</span>` : ''}
     </button>`;
   }).join('');
@@ -312,6 +327,7 @@ function renderToken(wr, i) {
       <span class="word-token__arrow">→</span>
       <span class="${tgtClass}">${escHtml(tgt)}</span>
       <span class="word-token__count">${options.length} variants</span>
+      <span class="word-token__badge">${escHtml(variantRoleLabel(selected, selectedIndex))}</span>
     </div>
     <div class="variant-chip-list" role="listbox" aria-label="Choose match for ${escHtml(sourceText)}">${chips}</div>
   </div>`;
