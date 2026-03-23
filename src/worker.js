@@ -283,6 +283,751 @@ async function handleAdminExport(request, env) {
   });
 }
 
+function toAliasLanguageMap(aliases) {
+  const out = {};
+  for (const alias of aliases || []) {
+    if (!alias || !alias.language || !alias.alias) continue;
+    if (!out[alias.language]) out[alias.language] = [];
+    out[alias.language].push(alias.alias);
+  }
+  return out;
+}
+
+function toOutputVariantLanguageMap(variants, { withLabel = true } = {}) {
+  const out = {};
+  for (const variant of variants || []) {
+    if (!variant || !variant.target_lang || !variant.target_text) continue;
+    if (!out[variant.target_lang]) out[variant.target_lang] = [];
+    const item = {
+      text: variant.target_text,
+      preferred: !!variant.preferred,
+      verified: variant.verified === undefined ? true : !!variant.verified,
+      notes: variant.notes || '',
+    };
+    if (withLabel) item.label = variant.label || '';
+    out[variant.target_lang].push(item);
+  }
+  return out;
+}
+
+async function fetchNamesForStructuredExport(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT
+      n.id,
+      n.mon,
+      n.burmese,
+      n.english,
+      n.meaning,
+      n.gender,
+      n.verified,
+      (SELECT json_group_array(json_object(
+        'alias', a.alias,
+        'language', a.language,
+        'preferred', a.preferred,
+        'variant_group', a.variant_group,
+        'usage_note', a.usage_note
+      )) FROM aliases a WHERE a.name_id = n.id) AS aliases,
+      (SELECT json_group_array(json_object(
+        'target_lang', v.target_lang,
+        'target_text', v.target_text,
+        'preferred', v.preferred,
+        'verified', v.verified,
+        'label', v.label,
+        'notes', v.notes
+      )) FROM name_output_variants v WHERE v.name_id = n.id) AS output_variants
+    FROM names n
+    ORDER BY n.id ASC
+  `).bind().all();
+
+  return (results || []).map(row => {
+    const normalized = formatName(row);
+    return {
+      mon: normalized.mon || null,
+      burmese: normalized.burmese || null,
+      english: normalized.english || null,
+      meaning: normalized.meaning || null,
+      gender: VALID_GENDERS.includes(normalized.gender) ? normalized.gender : 'neutral',
+      verified: !!normalized.verified,
+      input_aliases: toAliasLanguageMap(normalized.aliases),
+      output_variants: toOutputVariantLanguageMap(normalized.output_variants),
+    };
+  });
+}
+
+async function fetchSegmentsForStructuredExport(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT
+      s.id,
+      s.source_text,
+      s.source_lang,
+      s.meaning,
+      s.verified,
+      (SELECT json_group_array(json_object(
+        'target_lang', v.target_lang,
+        'target_text', v.target_text,
+        'preferred', v.preferred,
+        'verified', v.verified,
+        'notes', v.notes
+      )) FROM segment_variants v WHERE v.segment_id = s.id) AS variants
+    FROM segments s
+    ORDER BY s.id ASC
+  `).bind().all();
+
+  return (results || []).map(row => {
+    let parsed = [];
+    try {
+      parsed = JSON.parse(row.variants || '[]');
+    } catch {
+      parsed = [];
+    }
+
+    return {
+      source_text: row.source_text,
+      source_lang: row.source_lang,
+      meaning: row.meaning || null,
+      verified: !!row.verified,
+      output_variants: toOutputVariantLanguageMap(parsed, { withLabel: false }),
+    };
+  });
+}
+
+async function handleAdminStructuredJsonExport(request, env) {
+  const url = new URL(request.url);
+  const scope = url.searchParams.get('scope') || 'all';
+  if (!['names', 'segments', 'all'].includes(scope)) {
+    return err('Invalid scope. Must be: names, segments, or all');
+  }
+
+  const names = scope === 'segments' ? [] : await fetchNamesForStructuredExport(env);
+  const segments = scope === 'names' ? [] : await fetchSegmentsForStructuredExport(env);
+
+  const body = {
+    schema_version: '1.0',
+    exported_at: new Date().toISOString(),
+    source: 'monname-converter',
+    data: {
+      names,
+      segments,
+    },
+  };
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const disposition = `attachment; filename="monname-${scope}-${timestamp}.json"`;
+
+  return new Response(JSON.stringify(body, null, 2), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Disposition': disposition,
+    },
+  });
+}
+
+function nameLookupKey(payload) {
+  return `${payload.mon || ''}||${payload.burmese || ''}||${payload.english || ''}`;
+}
+
+function segmentLookupKey(payload) {
+  return `${payload.source_lang}||${payload.source_text}`;
+}
+
+function parseVariantMap(raw, errors, warnings, contextLabel, { sourceLang = null } = {}) {
+  const normalized = [];
+  if (raw === undefined || raw === null) return normalized;
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push(`${contextLabel}.output_variants must be an object keyed by language`);
+    return normalized;
+  }
+
+  for (const [lang, entries] of Object.entries(raw)) {
+    if (!VALID_LANGUAGES.includes(lang)) {
+      errors.push(`${contextLabel}.output_variants.${lang} is not a supported language`);
+      continue;
+    }
+
+    if (sourceLang && lang === sourceLang) {
+      warnings.push(`${contextLabel}.output_variants.${lang} skipped because source and target language match`);
+      continue;
+    }
+
+    if (!Array.isArray(entries)) {
+      errors.push(`${contextLabel}.output_variants.${lang} must be an array`);
+      continue;
+    }
+
+    const seen = new Set();
+    let preferredCount = 0;
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        errors.push(`${contextLabel}.output_variants.${lang}[${i}] must be an object`);
+        continue;
+      }
+
+      const text = collapseSpaces(entry.text);
+      if (!text) {
+        errors.push(`${contextLabel}.output_variants.${lang}[${i}].text is required`);
+        continue;
+      }
+      if (text.length > FIELD_LIMITS[lang]) {
+        errors.push(`${contextLabel}.output_variants.${lang}[${i}].text exceeds ${FIELD_LIMITS[lang]} characters`);
+        continue;
+      }
+
+      const dedupeKey = text.toLowerCase();
+      if (seen.has(dedupeKey)) {
+        warnings.push(`${contextLabel}.output_variants.${lang} duplicate text "${text}" skipped`);
+        continue;
+      }
+      seen.add(dedupeKey);
+
+      const preferred = !!entry.preferred;
+      if (preferred) preferredCount++;
+
+      const normalizedVariant = {
+        target_lang: lang,
+        target_text: text,
+        preferred,
+        verified: entry.verified === undefined ? true : !!entry.verified,
+        notes: collapseSpaces(entry.notes || '') || null,
+        label: collapseSpaces(entry.label || '') || null,
+      };
+
+      if (normalizedVariant.notes && normalizedVariant.notes.length > FIELD_LIMITS.output_variant_notes) {
+        errors.push(`${contextLabel}.output_variants.${lang}[${i}].notes exceeds ${FIELD_LIMITS.output_variant_notes} characters`);
+      }
+      if (normalizedVariant.label && normalizedVariant.label.length > FIELD_LIMITS.output_variant_label) {
+        errors.push(`${contextLabel}.output_variants.${lang}[${i}].label exceeds ${FIELD_LIMITS.output_variant_label} characters`);
+      }
+
+      normalized.push(normalizedVariant);
+    }
+
+    const languageVariants = normalized.filter(v => v.target_lang === lang);
+    if (languageVariants.length) {
+      if (preferredCount > 1) {
+        warnings.push(`${contextLabel}.output_variants.${lang} had multiple preferred variants; only the first is kept preferred`);
+      }
+      let hasPreferred = false;
+      for (const variant of languageVariants) {
+        if (variant.preferred && !hasPreferred) {
+          hasPreferred = true;
+        } else {
+          variant.preferred = false;
+        }
+      }
+      if (!hasPreferred) {
+        languageVariants[0].preferred = true;
+        warnings.push(`${contextLabel}.output_variants.${lang} had no preferred variant; first variant marked preferred`);
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function parseAliasMap(raw, errors, warnings, contextLabel) {
+  const aliases = [];
+  if (raw === undefined || raw === null) return aliases;
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push(`${contextLabel}.input_aliases must be an object keyed by language`);
+    return aliases;
+  }
+
+  for (const [lang, entries] of Object.entries(raw)) {
+    if (!VALID_LANGUAGES.includes(lang)) {
+      errors.push(`${contextLabel}.input_aliases.${lang} is not a supported language`);
+      continue;
+    }
+    if (!Array.isArray(entries)) {
+      errors.push(`${contextLabel}.input_aliases.${lang} must be an array of strings`);
+      continue;
+    }
+
+    const seen = new Set();
+    for (let i = 0; i < entries.length; i++) {
+      const rawAlias = entries[i];
+      if (typeof rawAlias !== 'string') {
+        errors.push(`${contextLabel}.input_aliases.${lang}[${i}] must be a string`);
+        continue;
+      }
+      const alias = collapseSpaces(rawAlias);
+      if (!alias) continue;
+      if (alias.length > FIELD_LIMITS.alias) {
+        errors.push(`${contextLabel}.input_aliases.${lang}[${i}] exceeds ${FIELD_LIMITS.alias} characters`);
+        continue;
+      }
+
+      const key = alias.toLowerCase();
+      if (seen.has(key)) {
+        warnings.push(`${contextLabel}.input_aliases.${lang} duplicate alias "${alias}" skipped`);
+        continue;
+      }
+      seen.add(key);
+      aliases.push({ alias, language: lang, preferred: false, variant_group: null, usage_note: null });
+    }
+  }
+
+  return aliases;
+}
+
+function validateAndNormalizeImportPayload(payload) {
+  const errors = [];
+  const warnings = [];
+  const invalidRecords = [];
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { errors: ['payload must be a JSON object'], warnings, invalidRecords, data: { names: [], segments: [] } };
+  }
+
+  if (!payload.schema_version) {
+    errors.push('payload.schema_version is required');
+  } else if (String(payload.schema_version) !== '1.0') {
+    warnings.push(`payload.schema_version is ${payload.schema_version}; expected 1.0`);
+  }
+
+  const data = payload.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    errors.push('payload.data must be an object');
+    return { errors, warnings, invalidRecords, data: { names: [], segments: [] } };
+  }
+
+  const namesRaw = Array.isArray(data.names) ? data.names : [];
+  const segmentsRaw = Array.isArray(data.segments) ? data.segments : [];
+
+  if (data.names !== undefined && !Array.isArray(data.names)) {
+    errors.push('payload.data.names must be an array');
+  }
+  if (data.segments !== undefined && !Array.isArray(data.segments)) {
+    errors.push('payload.data.segments must be an array');
+  }
+
+  const names = [];
+  for (let i = 0; i < namesRaw.length; i++) {
+    const row = namesRaw[i];
+    const rowErrors = [];
+    const rowWarnings = [];
+    const label = `names[${i}]`;
+
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      invalidRecords.push({ index: i, type: 'name', errors: ['record must be an object'] });
+      continue;
+    }
+
+    const mon = sanitizeLimitedText(row.mon, `${label}.mon`, rowErrors, { maxLength: FIELD_LIMITS.mon });
+    const burmese = sanitizeLimitedText(row.burmese, `${label}.burmese`, rowErrors, { maxLength: FIELD_LIMITS.burmese });
+    const english = sanitizeLimitedText(row.english, `${label}.english`, rowErrors, { maxLength: FIELD_LIMITS.english });
+    const meaning = sanitizeLimitedText(row.meaning, `${label}.meaning`, rowErrors, { maxLength: FIELD_LIMITS.meaning });
+
+    if (!mon && !burmese && !english) {
+      rowErrors.push(`${label} must include at least one of mon, burmese, or english`);
+    }
+
+    const gender = VALID_GENDERS.includes(row.gender) ? row.gender : 'neutral';
+    if (row.gender !== undefined && !VALID_GENDERS.includes(row.gender)) {
+      rowWarnings.push(`${label}.gender "${row.gender}" normalized to neutral`);
+    }
+
+    const aliases = parseAliasMap(row.input_aliases, rowErrors, rowWarnings, label);
+    const outputVariants = parseVariantMap(row.output_variants, rowErrors, rowWarnings, label);
+
+    if (rowErrors.length) {
+      invalidRecords.push({ index: i, type: 'name', errors: rowErrors });
+      continue;
+    }
+
+    warnings.push(...rowWarnings);
+    names.push({
+      mon,
+      burmese,
+      english,
+      meaning,
+      gender,
+      verified: !!row.verified,
+      aliases,
+      output_variants: outputVariants,
+    });
+  }
+
+  const segments = [];
+  for (let i = 0; i < segmentsRaw.length; i++) {
+    const row = segmentsRaw[i];
+    const rowErrors = [];
+    const rowWarnings = [];
+    const label = `segments[${i}]`;
+
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      invalidRecords.push({ index: i, type: 'segment', errors: ['record must be an object'] });
+      continue;
+    }
+
+    const source_text = sanitizeLimitedText(row.source_text, `${label}.source_text`, rowErrors, {
+      maxLength: SEGMENT_TEXT_LIMIT,
+      allowNull: false,
+    });
+    const meaning = sanitizeLimitedText(row.meaning, `${label}.meaning`, rowErrors, {
+      maxLength: SEGMENT_MEANING_LIMIT,
+    });
+    const source_lang = VALID_LANGUAGES.includes(row.source_lang) ? row.source_lang : null;
+    if (!source_lang) {
+      rowErrors.push(`${label}.source_lang must be mon, burmese, or english`);
+    }
+
+    const outputVariants = parseVariantMap(row.output_variants, rowErrors, rowWarnings, label, { sourceLang: source_lang });
+    const segmentVariantRows = outputVariants.map(variant => ({
+      ...variant,
+      notes: variant.notes,
+    }));
+
+    if (rowErrors.length) {
+      invalidRecords.push({ index: i, type: 'segment', errors: rowErrors });
+      continue;
+    }
+
+    warnings.push(...rowWarnings);
+    segments.push({
+      source_text,
+      source_lang,
+      meaning,
+      verified: !!row.verified,
+      output_variants: segmentVariantRows,
+    });
+  }
+
+  return { errors, warnings, invalidRecords, data: { names, segments } };
+}
+
+async function upsertNameRecord(env, payload, mode, dryRun, summary) {
+  const existing = await env.DB.prepare(`
+    SELECT id
+    FROM names
+    WHERE COALESCE(mon, '') = ?
+      AND COALESCE(burmese, '') = ?
+      AND COALESCE(english, '') = ?
+    LIMIT 1
+  `).bind(payload.mon || '', payload.burmese || '', payload.english || '').first();
+
+  let nameId = existing?.id || null;
+
+  if (existing && mode === 'insert_only') {
+    summary.names_skipped += 1;
+    return;
+  }
+
+  if (!existing) {
+    summary.names_inserted += 1;
+    if (!dryRun) {
+      const result = await env.DB.prepare(`
+        INSERT INTO names (mon, burmese, english, meaning, gender, verified)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(
+        payload.mon,
+        payload.burmese,
+        payload.english,
+        payload.meaning,
+        payload.gender,
+        payload.verified ? 1 : 0
+      ).run();
+      nameId = result.meta.last_row_id;
+    }
+  } else {
+    summary.names_updated += 1;
+    if (!dryRun) {
+      await env.DB.prepare(`
+        UPDATE names
+        SET mon = ?,
+            burmese = ?,
+            english = ?,
+            meaning = ?,
+            gender = ?,
+            verified = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(
+        payload.mon,
+        payload.burmese,
+        payload.english,
+        payload.meaning,
+        payload.gender,
+        payload.verified ? 1 : 0,
+        nameId
+      ).run();
+    }
+  }
+
+  if (!nameId && dryRun) nameId = -1;
+  if (!nameId) return;
+
+  for (const alias of payload.aliases) {
+    let prior = null;
+    if (!(dryRun && !existing)) {
+      prior = await env.DB.prepare(`
+        SELECT id
+        FROM aliases
+        WHERE name_id = ? AND language = ? AND alias = ?
+        LIMIT 1
+      `).bind(nameId, alias.language, alias.alias).first();
+    }
+
+    if (!prior) {
+      summary.aliases_inserted += 1;
+      if (!dryRun) {
+        await env.DB.prepare(`
+          INSERT INTO aliases (name_id, alias, language, preferred, variant_group, usage_note)
+          VALUES (?, ?, ?, 0, NULL, NULL)
+        `).bind(nameId, alias.alias, alias.language).run();
+      }
+    }
+  }
+
+  for (const variant of payload.output_variants) {
+    let prior = null;
+    if (!(dryRun && !existing)) {
+      prior = await env.DB.prepare(`
+        SELECT id
+        FROM name_output_variants
+        WHERE name_id = ? AND target_lang = ? AND target_text = ?
+        LIMIT 1
+      `).bind(nameId, variant.target_lang, variant.target_text).first();
+    }
+
+    if (!prior) {
+      summary.output_variants_inserted += 1;
+      if (!dryRun) {
+        if (variant.preferred) {
+          await env.DB.prepare(`
+            UPDATE name_output_variants
+            SET preferred = 0
+            WHERE name_id = ? AND target_lang = ?
+          `).bind(nameId, variant.target_lang).run();
+        }
+        await env.DB.prepare(`
+          INSERT INTO name_output_variants (name_id, target_lang, target_text, preferred, verified, label, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          nameId,
+          variant.target_lang,
+          variant.target_text,
+          variant.preferred ? 1 : 0,
+          variant.verified ? 1 : 0,
+          variant.label,
+          variant.notes
+        ).run();
+      }
+    } else if (mode === 'merge') {
+      if (!dryRun) {
+        if (variant.preferred) {
+          await env.DB.prepare(`
+            UPDATE name_output_variants
+            SET preferred = 0
+            WHERE name_id = ? AND target_lang = ?
+          `).bind(nameId, variant.target_lang).run();
+        }
+        await env.DB.prepare(`
+          UPDATE name_output_variants
+          SET preferred = ?,
+              verified = ?,
+              label = ?,
+              notes = ?,
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).bind(
+          variant.preferred ? 1 : 0,
+          variant.verified ? 1 : 0,
+          variant.label,
+          variant.notes,
+          prior.id
+        ).run();
+      }
+    }
+  }
+}
+
+async function upsertSegmentRecord(env, payload, mode, dryRun, summary) {
+  const existing = await env.DB.prepare(`
+    SELECT id
+    FROM segments
+    WHERE source_lang = ? AND source_text = ?
+    LIMIT 1
+  `).bind(payload.source_lang, payload.source_text).first();
+
+  let segmentId = existing?.id || null;
+
+  if (existing && mode === 'insert_only') {
+    summary.segments_skipped += 1;
+    return;
+  }
+
+  if (!existing) {
+    summary.segments_inserted += 1;
+    if (!dryRun) {
+      const result = await env.DB.prepare(`
+        INSERT INTO segments (source_text, source_lang, meaning, verified)
+        VALUES (?, ?, ?, ?)
+      `).bind(
+        payload.source_text,
+        payload.source_lang,
+        payload.meaning,
+        payload.verified ? 1 : 0
+      ).run();
+      segmentId = result.meta.last_row_id;
+    }
+  } else {
+    summary.segments_updated += 1;
+    if (!dryRun) {
+      await env.DB.prepare(`
+        UPDATE segments
+        SET meaning = ?,
+            verified = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(payload.meaning, payload.verified ? 1 : 0, segmentId).run();
+    }
+  }
+
+  if (!segmentId && dryRun) segmentId = -1;
+  if (!segmentId) return;
+
+  for (const variant of payload.output_variants) {
+    let prior = null;
+    if (!(dryRun && !existing)) {
+      prior = await env.DB.prepare(`
+        SELECT id
+        FROM segment_variants
+        WHERE segment_id = ? AND target_lang = ? AND target_text = ?
+        LIMIT 1
+      `).bind(segmentId, variant.target_lang, variant.target_text).first();
+    }
+
+    if (!prior) {
+      summary.segment_variants_inserted += 1;
+      if (!dryRun) {
+        if (variant.preferred) {
+          await env.DB.prepare(`
+            UPDATE segment_variants
+            SET preferred = 0
+            WHERE segment_id = ? AND target_lang = ?
+          `).bind(segmentId, variant.target_lang).run();
+        }
+        await env.DB.prepare(`
+          INSERT INTO segment_variants (segment_id, target_lang, target_text, preferred, verified, notes)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).bind(
+          segmentId,
+          variant.target_lang,
+          variant.target_text,
+          variant.preferred ? 1 : 0,
+          variant.verified ? 1 : 0,
+          variant.notes
+        ).run();
+      }
+    } else if (mode === 'merge') {
+      if (!dryRun) {
+        if (variant.preferred) {
+          await env.DB.prepare(`
+            UPDATE segment_variants
+            SET preferred = 0
+            WHERE segment_id = ? AND target_lang = ?
+          `).bind(segmentId, variant.target_lang).run();
+        }
+        await env.DB.prepare(`
+          UPDATE segment_variants
+          SET preferred = ?,
+              verified = ?,
+              notes = ?
+          WHERE id = ?
+        `).bind(
+          variant.preferred ? 1 : 0,
+          variant.verified ? 1 : 0,
+          variant.notes,
+          prior.id
+        ).run();
+      }
+    }
+  }
+}
+
+async function handleAdminStructuredJsonImport(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err('Request body must be valid JSON');
+  }
+
+  const mode = body?.mode || 'merge';
+  const dryRun = body?.dryRun !== undefined ? !!body.dryRun : true;
+  const payload = body?.payload;
+
+  if (!['merge', 'insert_only', 'replace_all'].includes(mode)) {
+    return err('Invalid mode. Must be: merge, insert_only, or replace_all');
+  }
+
+  const normalized = validateAndNormalizeImportPayload(payload);
+  if (normalized.errors.length) {
+    return invalidPayload(normalized.errors);
+  }
+
+  const summary = {
+    mode,
+    dry_run: dryRun,
+    names_inserted: 0,
+    names_updated: 0,
+    names_skipped: 0,
+    aliases_inserted: 0,
+    output_variants_inserted: 0,
+    segments_inserted: 0,
+    segments_updated: 0,
+    segments_skipped: 0,
+    segment_variants_inserted: 0,
+    invalid_records: normalized.invalidRecords.length,
+  };
+
+  const warnings = [...normalized.warnings];
+  const duplicateNameKeys = new Set();
+  const duplicateSegmentKeys = new Set();
+
+  if (mode === 'replace_all' && !dryRun) {
+    await env.DB.prepare('DELETE FROM name_output_variants').run();
+    await env.DB.prepare('DELETE FROM aliases').run();
+    await env.DB.prepare('DELETE FROM names').run();
+    await env.DB.prepare('DELETE FROM segment_variants').run();
+    await env.DB.prepare('DELETE FROM segments').run();
+  }
+
+  for (const namePayload of normalized.data.names) {
+    const key = nameLookupKey(namePayload);
+    if (duplicateNameKeys.has(key)) {
+      summary.names_skipped += 1;
+      warnings.push(`Duplicate name record in payload skipped: ${key}`);
+      continue;
+    }
+    duplicateNameKeys.add(key);
+    await upsertNameRecord(env, namePayload, mode, dryRun, summary);
+  }
+
+  for (const segmentPayload of normalized.data.segments) {
+    const key = segmentLookupKey(segmentPayload);
+    if (duplicateSegmentKeys.has(key)) {
+      summary.segments_skipped += 1;
+      warnings.push(`Duplicate segment record in payload skipped: ${key}`);
+      continue;
+    }
+    duplicateSegmentKeys.add(key);
+    await upsertSegmentRecord(env, segmentPayload, mode, dryRun, summary);
+  }
+
+  return json({
+    success: true,
+    summary,
+    warnings,
+    invalid_records: normalized.invalidRecords,
+  });
+}
+
 function normalize(q) {
   return (q || '').replace(/\s+/g, ' ').trim();
 }
@@ -1971,6 +2716,8 @@ async function router(request, env) {
 
     if (method === 'GET' && pathname === '/api/admin/stats') return handleAdminStats(request, env);
     if (method === 'GET' && pathname === '/api/admin/export') return handleAdminExport(request, env);
+    if (method === 'GET' && pathname === '/api/admin/export/json') return handleAdminStructuredJsonExport(request, env);
+    if (method === 'POST' && pathname === '/api/admin/import/json') return handleAdminStructuredJsonImport(request, env);
     if (method === 'GET' && pathname === '/api/admin/names') return handleListNames(request, env);
     if (method === 'POST' && pathname === '/api/admin/names') return handleCreateName(request, env);
     if (method === 'GET' && pathname === '/api/admin/segments') return handleListSegments(request, env);
