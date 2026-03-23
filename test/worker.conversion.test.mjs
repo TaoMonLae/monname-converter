@@ -36,12 +36,12 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'worker-test-'));
 const testableWorkerPath = path.join(tempDir, 'worker.testable.mjs');
 fs.writeFileSync(
   testableWorkerPath,
-  `${workerSource}\nexport { handleConvert, buildAssembled, handleUpdateSuggestion };\n`,
+  `${workerSource}\nexport { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport };\n`,
   'utf8'
 );
 const workerModule = await import(pathToFileURL(testableWorkerPath).href);
 
-const { handleConvert, buildAssembled, handleUpdateSuggestion } = workerModule;
+const { handleConvert, buildAssembled, handleUpdateSuggestion, handleAdminStructuredJsonExport, handleAdminStructuredJsonImport } = workerModule;
 
 test('exact full-name match flow returns exact_name mode', async () => {
   const db = createDbMock(({ sql, op }) => {
@@ -231,4 +231,83 @@ test('duplicate-safe suggestion approval does not re-promote approved suggestion
 
   const promotedRuns = db.calls.filter(call => call.sql.includes('INSERT INTO names'));
   assert.equal(promotedRuns.length, 0);
+});
+
+test('structured json export returns versioned payload for names scope', async () => {
+  const db = createDbMock(({ sql, op }) => {
+    if (op !== 'all') return { results: [] };
+    if (sql.includes('FROM names n')) {
+      return {
+        results: [{
+          id: 1,
+          mon: 'အံၚ်',
+          burmese: 'အောင်',
+          english: 'Aung',
+          meaning: 'victory',
+          gender: 'neutral',
+          verified: 1,
+          aliases: JSON.stringify([{ alias: 'Ong', language: 'english' }]),
+          output_variants: JSON.stringify([{ target_lang: 'english', target_text: 'Aung', preferred: 1, verified: 1, label: 'Recommended', notes: '' }]),
+        }],
+      };
+    }
+    return { results: [] };
+  });
+
+  const response = await handleAdminStructuredJsonExport(
+    new Request('https://example.com/api/admin/export/json?scope=names'),
+    { DB: db }
+  );
+  const payload = await response.json();
+
+  assert.equal(payload.schema_version, '1.0');
+  assert.equal(Array.isArray(payload.data.names), true);
+  assert.equal(payload.data.names.length, 1);
+  assert.equal(payload.data.names[0].output_variants.english[0].text, 'Aung');
+  assert.equal(payload.data.segments.length, 0);
+});
+
+test('structured json import dryRun validates and summarizes', async () => {
+  const db = createDbMock(({ op }) => (op === 'all' ? { results: [] } : null));
+
+  const request = new Request('https://example.com/api/admin/import/json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'merge',
+      dryRun: true,
+      payload: {
+        schema_version: '1.0',
+        data: {
+          names: [{
+            mon: 'အံၚ်',
+            english: 'Aung',
+            input_aliases: { english: ['Aung', 'Ong'] },
+            output_variants: {
+              english: [{ text: 'Aung', preferred: true, verified: true }],
+            },
+          }],
+          segments: [{
+            source_text: 'အံၚ်',
+            source_lang: 'mon',
+            output_variants: {
+              english: [{ text: 'Aung', preferred: true, verified: true }],
+            },
+          }],
+        },
+      },
+    }),
+  });
+
+  const response = await handleAdminStructuredJsonImport(request, { DB: db });
+  const payload = await response.json();
+
+  assert.equal(payload.success, true);
+  assert.equal(payload.summary.dry_run, true);
+  assert.equal(payload.summary.names_inserted, 1);
+  assert.equal(payload.summary.segments_inserted, 1);
+  assert.equal(payload.summary.aliases_inserted, 2);
+  assert.equal(payload.summary.output_variants_inserted, 1);
+  assert.equal(payload.summary.segment_variants_inserted, 1);
+  assert.equal(payload.summary.invalid_records, 0);
 });

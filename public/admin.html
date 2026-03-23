@@ -405,8 +405,38 @@
           </div>
           <div class="admin-page-header__actions">
             <button class="btn btn--secondary" id="exportNamesBtn">↓ Export CSV</button>
+            <button class="btn btn--secondary" id="exportNamesJsonBtn">↓ Export Names JSON</button>
+            <button class="btn btn--secondary" id="exportAllJsonBtn">↓ Export Full JSON</button>
             <button class="btn btn--accent" id="createNameBtn">+ New entry</button>
           </div>
+        </div>
+
+        <div class="card mt-md" style="padding:var(--space-md)">
+          <h3 style="margin:0 0 var(--space-sm)">JSON Import / Export</h3>
+          <p class="text-muted text-small" style="margin:0 0 var(--space-md)">
+            Structured backup/import for names, aliases, output variants, segments, and segment variants.
+          </p>
+          <div class="admin-toolbar" style="align-items:flex-end; gap:var(--space-sm)">
+            <div class="form-group" style="margin:0">
+              <label for="importJsonFile">Import JSON file</label>
+              <input type="file" id="importJsonFile" accept="application/json,.json" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label for="importMode">Import mode</label>
+              <select id="importMode">
+                <option value="merge">merge</option>
+                <option value="insert_only">insert_only</option>
+                <option value="replace_all">replace_all</option>
+              </select>
+            </div>
+            <label class="text-small" style="display:flex; align-items:center; gap:6px; margin-bottom:8px">
+              <input type="checkbox" id="importDryRun" checked />
+              Dry run
+            </label>
+            <button class="btn btn--primary" id="importJsonBtn">Import JSON</button>
+            <button class="btn btn--secondary" id="exportSegmentsJsonBtn">↓ Export Segments JSON</button>
+          </div>
+          <pre id="importJsonResult" class="mt-sm text-small" style="display:none; white-space:pre-wrap"></pre>
         </div>
 
         <div class="stat-grid" id="nameStats">

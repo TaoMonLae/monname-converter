@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "source": "monname-converter",
+  "data": {
+    "names": [
+      {
+        "mon": "အံၚ်",
+        "burmese": "အောင်",
+        "english": "Aung",
+        "meaning": "victory",
+        "gender": "neutral",
+        "verified": true,
+        "input_aliases": {
+          "english": ["Aung", "Ong", "Oung"]
+        },
+        "output_variants": {
+          "english": [
+            {
+              "text": "Aung",
+              "preferred": true,
+              "verified": true,
+              "label": "Recommended",
+              "notes": ""
+            },
+            {
+              "text": "Ong",
+              "preferred": false,
+              "verified": true,
+              "label": "Alternate",
+              "notes": ""
+            }
+          ]
+        }
+      }
+    ],
+    "segments": [
+      {
+        "source_text": "အံၚ်",
+        "source_lang": "mon",
+        "meaning": "segment example",
+        "verified": true,
+        "output_variants": {
+          "english": [
+            {
+              "text": "aung",
+              "preferred": true,
+              "verified": true,
+              "notes": "default segment output"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

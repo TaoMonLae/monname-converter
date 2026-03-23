@@ -38,6 +38,14 @@ const panelSegments = document.getElementById('panelSegments');
 const exportNamesBtn       = document.getElementById('exportNamesBtn');
 const exportSuggestionsBtn = document.getElementById('exportSuggestionsBtn');
 const exportSegmentsBtn    = document.getElementById('exportSegmentsBtn');
+const exportNamesJsonBtn   = document.getElementById('exportNamesJsonBtn');
+const exportSegmentsJsonBtn = document.getElementById('exportSegmentsJsonBtn');
+const exportAllJsonBtn     = document.getElementById('exportAllJsonBtn');
+const importJsonFile       = document.getElementById('importJsonFile');
+const importModeSelect     = document.getElementById('importMode');
+const importDryRunCheckbox = document.getElementById('importDryRun');
+const importJsonBtn        = document.getElementById('importJsonBtn');
+const importJsonResult     = document.getElementById('importJsonResult');
 const createNameBtn   = document.getElementById('createNameBtn');
 const nameModal       = document.getElementById('nameModal');
 const nameModalTitle  = document.getElementById('nameModalTitle');
@@ -1036,6 +1044,98 @@ async function triggerExport(type, format = 'csv') {
 exportNamesBtn.addEventListener('click', () => triggerExport('names'));
 exportSuggestionsBtn.addEventListener('click', () => triggerExport('suggestions'));
 exportSegmentsBtn.addEventListener('click', () => triggerExport('segments'));
+
+async function triggerJsonExport(scope, btn) {
+  if (!btn) return;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Exporting…';
+
+  try {
+    const res = await fetch(`${API}/admin/export/json?scope=${encodeURIComponent(scope)}`, {
+      credentials: 'same-origin',
+    });
+    if (res.status === 401) { showLoginScreen(); return; }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `export-${scope}.json`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(`JSON export failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+function renderImportSummary(data) {
+  if (!importJsonResult) return;
+  importJsonResult.style.display = 'block';
+  importJsonResult.textContent = JSON.stringify(data, null, 2);
+}
+
+async function triggerJsonImport() {
+  if (!importJsonBtn || !importJsonFile) return;
+  const file = importJsonFile.files && importJsonFile.files[0];
+  if (!file) {
+    alert('Please choose a JSON file to import.');
+    return;
+  }
+
+  const original = importJsonBtn.textContent;
+  importJsonBtn.disabled = true;
+  importJsonBtn.textContent = 'Importing…';
+  if (importJsonResult) importJsonResult.style.display = 'none';
+
+  try {
+    const rawText = await file.text();
+    let payload;
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      throw new Error('Selected file is not valid JSON');
+    }
+
+    const res = await fetch(`${API}/admin/import/json`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: importModeSelect ? importModeSelect.value : 'merge',
+        dryRun: importDryRunCheckbox ? !!importDryRunCheckbox.checked : true,
+        payload,
+      }),
+    });
+
+    if (res.status === 401) { showLoginScreen(); return; }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    renderImportSummary(data);
+  } catch (e) {
+    renderImportSummary({ success: false, error: e.message });
+  } finally {
+    importJsonBtn.disabled = false;
+    importJsonBtn.textContent = original;
+  }
+}
+
+exportNamesJsonBtn?.addEventListener('click', () => triggerJsonExport('names', exportNamesJsonBtn));
+exportSegmentsJsonBtn?.addEventListener('click', () => triggerJsonExport('segments', exportSegmentsJsonBtn));
+exportAllJsonBtn?.addEventListener('click', () => triggerJsonExport('all', exportAllJsonBtn));
+importJsonBtn?.addEventListener('click', triggerJsonImport);
 
 // ── Night mode toggle ─────────────────────────────────────────
 (function initTheme() {
