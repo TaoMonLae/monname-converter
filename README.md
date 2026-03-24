@@ -191,4 +191,4 @@ This keeps source data human-editable while preserving reproducible SQL migratio
 
 ## License
 
-Not open-source.
+Open-Source (Non-Free)
