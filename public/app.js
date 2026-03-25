@@ -644,7 +644,7 @@ function saveHistory(input, result) {
 function renderHistory() {
   if (!historyList) return;
   if (history.length === 0) {
-    historyList.innerHTML = '<p class="text-muted text-small" style="padding:var(--space-sm) 0">No recent conversions yet.</p>';
+    historyList.innerHTML = '<p class="text-muted text-small history-empty">No recent conversions yet.</p>';
     return;
   }
 

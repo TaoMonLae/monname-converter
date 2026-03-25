@@ -120,9 +120,9 @@ function renderNameCard(name, index) {
       </div>` : '';
 
   return `
-    <article class="name-card" style="animation-delay:${index * 0.04}s">
+    <article class="name-card" style="--stagger:${index * 0.04}s">
       <div class="name-card__header">
-        <div style="font-size:0.75rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:0.08em">Name #${name.id}</div>
+        <div class="name-card__id">Name #${name.id}</div>
         <div class="name-card__badges">${genderBadge}${verifiedBadge}</div>
       </div>
       <div class="name-card__body">
